@@ -133,11 +133,18 @@ chrome.storage.onChanged.addListener((changes, area) => {
   if (area === 'local' && (changes.byDate || changes.total)) refreshWidget();
 });
 
-// Keep it mounted across SPA re-renders
+// Keep it mounted across SPA re-renders (debounced to avoid excessive work)
+let remountTimer = null;
 const rebinder = new MutationObserver(() => {
-  if (!host || !document.contains(host)) mountWidget();
+  if (host && document.contains(host)) return; // still mounted, skip
+  if (remountTimer) return; // already scheduled
+  remountTimer = setTimeout(() => {
+    remountTimer = null;
+    if (!host || !document.contains(host)) mountWidget();
+  }, 500);
 });
-rebinder.observe(document.documentElement, { childList: true, subtree: true });
+const observeTarget = document.querySelector('aside') || document.body;
+rebinder.observe(observeTarget, { childList: true, subtree: true });
 
 // Initial mount
 mountWidget();
