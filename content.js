@@ -39,7 +39,7 @@ document.addEventListener('click', (e) => {
 // ---------- SIDEBAR WIDGET INJECTION ----------
 let host = null, shadow = null, valueEl = null;
 
-function todayKey() { return new Date().toISOString().slice(0,10); }
+// todayKey() is provided by shared.js (loaded before this script in manifest)
 
 function readToday(cb) {
   chrome.storage.local.get(['byDate'], (res) => {
