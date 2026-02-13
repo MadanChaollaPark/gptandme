@@ -16,7 +16,25 @@ document.addEventListener('DOMContentLoaded', () => {
       const total = data.total || 0;
       document.getElementById('today').textContent = today;
       document.getElementById('total').textContent = total;
+      renderHistory(data.byDate);
     });
+  }
+
+  function renderHistory(byDate) {
+    const container = document.getElementById('history');
+    const keys = Object.keys(byDate).sort().reverse();
+    const today = todayKey();
+    // Show past days only (today is already shown above)
+    const pastDays = keys.filter(k => k !== today).slice(0, 7);
+    if (pastDays.length === 0) {
+      container.innerHTML = '';
+      return;
+    }
+    let html = '<div class="history-title">Recent days</div>';
+    for (const day of pastDays) {
+      html += `<div class="history-row"><span>${day}</span><span>${byDate[day]}</span></div>`;
+    }
+    container.innerHTML = html;
   }
 
   updateDisplay();

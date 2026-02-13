@@ -11,6 +11,8 @@
       button:hover { background: #eee; }
       code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
       .muted { color: #666; font-size: 12px; margin-top: 10px; }
+      .history-title { font-size: 12px; font-weight: 600; margin: 12px 0 4px; color: #444; }
+      .history-row { display: flex; justify-content: space-between; font-size: 12px; margin: 2px 0; color: #555; }
     </style>
   </head>
   <body>
@@ -21,6 +23,7 @@
       <button id="resetToday">Reset today</button>
       <button id="resetAll">Reset all</button>
     </div>
+    <div id="history"></div>
     <div class="muted">Counts are stored locally. Only user sends are counted.</div>
     <script src="popup.js"></script>
   </body>
