@@ -92,10 +92,13 @@ function buildWidget() {
 
   shadow.getElementById('pc-reset').addEventListener('click', (e) => {
     e.preventDefault(); e.stopPropagation();
-    chrome.storage.local.get(['byDate'], (res) => {
+    chrome.storage.local.get({ byDate: {}, total: 0 }, (res) => {
+      const key = todayKey();
+      const todayCount = res.byDate[key] || 0;
       const byDate = res.byDate || {};
-      byDate[todayKey()] = 0;
-      chrome.storage.local.set({ byDate });
+      delete byDate[key];
+      const newTotal = Math.max(0, (res.total || 0) - todayCount);
+      chrome.storage.local.set({ byDate, total: newTotal });
     });
   });
 
