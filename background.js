@@ -89,14 +89,7 @@ function isUserSendPayload(payload) {
   });
 }
 
-// Listen for tick messages from content script
-chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  if (message.type === "tick") {
-    increment();
-  }
-});
-
-// Observe outgoing requests to the ChatGPT web backend (backup method)
+// Observe outgoing requests to the ChatGPT web backend
 const urlFilters = [
   "*://chat.openai.com/backend-api/conversation*",
   "*://chatgpt.com/backend-api/conversation*"
