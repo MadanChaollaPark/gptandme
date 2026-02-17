@@ -19,75 +19,84 @@ async function setCounts(byDate, total) {
   });
 }
 
+// --- Icon with baked-in counter ---
+// Cache the base icon bitmap so we only fetch it once
+let baseIconBitmap = null;
+
+async function loadBaseIcon() {
+  if (baseIconBitmap) return baseIconBitmap;
+  const resp = await fetch(chrome.runtime.getURL('icons/icon128.png'));
+  const blob = await resp.blob();
+  baseIconBitmap = await createImageBitmap(blob);
+  return baseIconBitmap;
+}
+
+async function updateIcon(count) {
+  const size = 128;
+  const canvas = new OffscreenCanvas(size, size);
+  const ctx = canvas.getContext('2d');
+
+  // Draw base icon
+  const icon = await loadBaseIcon();
+  ctx.drawImage(icon, 0, 0, size, size);
+
+  const text = String(count);
+
+  // Draw counter badge
+  const fontSize = text.length >= 3 ? 44 : 52;
+  ctx.font = `bold ${fontSize}px system-ui, sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+
+  // Badge pill background
+  const metrics = ctx.measureText(text);
+  const padX = 10;
+  const padY = 6;
+  const bw = metrics.width + padX * 2;
+  const bh = fontSize + padY;
+  const bx = size - bw / 2 - 2;
+  const by = size - bh / 2 - 2;
+
+  ctx.fillStyle = '#e04040';
+  ctx.beginPath();
+  ctx.roundRect(bx - bw / 2, by - bh / 2, bw, bh, bh / 2);
+  ctx.fill();
+
+  // White text
+  ctx.fillStyle = '#fff';
+  ctx.fillText(text, bx, by + 1);
+
+  const imageData = ctx.getImageData(0, 0, size, size);
+  chrome.action.setIcon({ imageData: { 128: imageData } });
+}
+
+async function updateBadge(count) {
+  // Set native badge as fallback for standard toolbar
+  chrome.action.setBadgeText({ text: String(count) });
+  // Draw count directly on the icon for layouts that hide badges
+  await updateIcon(count);
+}
+
 async function increment() {
   const { byDate, total } = await getCounts();
   const key = todayKey();
   byDate[key] = (byDate[key] || 0) + 1;
   const newTotal = (total || 0) + 1;
   await setCounts(byDate, newTotal);
-  chrome.action.setBadgeText({ text: String(byDate[key]) });
+  await updateBadge(byDate[key]);
 }
 
 // Initialize badge on install/activate
 chrome.runtime.onInstalled.addListener(async () => {
   const { byDate } = await getCounts();
   chrome.action.setBadgeBackgroundColor({ color: "#444" });
-  chrome.action.setBadgeText({ text: String(byDate[todayKey()] || 0) });
+  await updateBadge(byDate[todayKey()] || 0);
 });
 chrome.runtime.onStartup.addListener(async () => {
   const { byDate } = await getCounts();
   chrome.action.setBadgeBackgroundColor({ color: "#444" });
-  chrome.action.setBadgeText({ text: String(byDate[todayKey()] || 0) });
+  await updateBadge(byDate[todayKey()] || 0);
 });
-
-// Decode requestBody raw bytes to JSON
-function parseJsonFromRequestBody(details) {
-  const raw = details.requestBody?.raw?.[0]?.bytes;
-  if (!raw) return null;
-  try {
-    const text = new TextDecoder().decode(new Uint8Array(raw));
-    return JSON.parse(text);
-  } catch (_) {
-    return null;
-  }
-}
-
-// Heuristics: count only when a "user" message is being sent.
-// Old ChatGPT UI hits /backend-api/conversation with {action:"next", messages:[{author.role:"user"}]}
-// Newer payloads use messages:[{role:"user", content:[{type:"input_text", text:"..."}]}]
-function isUserSendPayload(payload) {
-  if (!payload) return false;
-
-  // Typical "action": "next"
-  if (payload.action && payload.action !== "next") return false;
-
-  const msgs = payload.messages;
-  if (!Array.isArray(msgs)) return false;
-
-  // Count only if at least one user-authored message is present in THIS request.
-  return msgs.some(m => {
-    const role = m?.author?.role || m?.role;
-    if (role !== "user") return false;
-    // Guard against API-style requests that replay whole history.
-    // Require some fresh user text in this message.
-    const content = m?.content;
-    if (typeof content === "string" && content.trim().length > 0) return true;
-    if (Array.isArray(content)) {
-      return content.some(part => {
-        if (typeof part === "string") return part.trim().length > 0;
-        if (part?.type === "input_text" && typeof part?.text === "string") {
-          return part.text.trim().length > 0;
-        }
-        return false;
-      });
-    }
-    // Some UIs send {parts:["..."]} inside content
-    if (content?.parts && Array.isArray(content.parts)) {
-      return content.parts.some(p => typeof p === "string" && p.trim().length > 0);
-    }
-    return false;
-  });
-}
 
 // Listen for tick messages from content script
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
@@ -96,25 +105,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 });
 
-// Observe outgoing requests to the ChatGPT web backend (backup method)
-const urlFilters = [
-  "*://chat.openai.com/backend-api/conversation*",
-  "*://chatgpt.com/backend-api/conversation*"
-];
-
-chrome.webRequest.onBeforeRequest.addListener(
-  (details) => {
-    const payload = parseJsonFromRequestBody(details);
-    if (isUserSendPayload(payload)) {
-      increment();
-    }
-  },
-  { urls: urlFilters },
-  ["requestBody"]
-);
-
 // Keep badge in sync if date flips while browser is open
 setInterval(async () => {
   const { byDate } = await getCounts();
-  chrome.action.setBadgeText({ text: String(byDate[todayKey()] || 0) });
+  await updateBadge(byDate[todayKey()] || 0);
 }, 60 * 1000);

@@ -79,23 +79,39 @@ function buildWidget() {
   `;
   const wrap = document.createElement('div');
   wrap.className = 'card';
-  wrap.innerHTML = `
-    <div class="dot"></div>
-    <div class="grow">
-      <div class="title">Prompts today</div>
-      <div class="val" id="pc-val">0</div>
-    </div>
-    <button class="btn" id="pc-reset" title="Reset today">reset</button>
-  `;
-  shadow.append(style, wrap);
-  valueEl = shadow.getElementById('pc-val');
 
-  shadow.getElementById('pc-reset').addEventListener('click', (e) => {
+  const dot = document.createElement('div');
+  dot.className = 'dot';
+
+  const grow = document.createElement('div');
+  grow.className = 'grow';
+
+  const title = document.createElement('div');
+  title.className = 'title';
+  title.textContent = 'Prompts today';
+
+  valueEl = document.createElement('div');
+  valueEl.className = 'val';
+  valueEl.textContent = '0';
+
+  grow.append(title, valueEl);
+
+  const resetBtn = document.createElement('button');
+  resetBtn.className = 'btn';
+  resetBtn.title = 'Reset today';
+  resetBtn.textContent = 'reset';
+
+  wrap.append(dot, grow, resetBtn);
+  shadow.append(style, wrap);
+
+  resetBtn.addEventListener('click', (e) => {
     e.preventDefault(); e.stopPropagation();
-    chrome.storage.local.get(['byDate'], (res) => {
+    chrome.storage.local.get({ byDate: {}, total: 0 }, (res) => {
       const byDate = res.byDate || {};
-      byDate[todayKey()] = 0;
-      chrome.storage.local.set({ byDate });
+      const todayCount = byDate[todayKey()] || 0;
+      delete byDate[todayKey()];
+      const newTotal = Math.max(0, (res.total || 0) - todayCount);
+      chrome.storage.local.set({ byDate, total: newTotal });
     });
   });
 

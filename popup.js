@@ -30,10 +30,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Add reset functionality
   document.getElementById('resetToday').addEventListener('click', () => {
-    chrome.storage.local.get({ byDate: {} }, (data) => {
+    chrome.storage.local.get({ byDate: {}, total: 0 }, (data) => {
+      const todayCount = data.byDate[todayKey()] || 0;
       const newByDate = { ...data.byDate };
       delete newByDate[todayKey()];
-      chrome.storage.local.set({ byDate: newByDate });
+      const newTotal = Math.max(0, (data.total || 0) - todayCount);
+      chrome.storage.local.set({ byDate: newByDate, total: newTotal });
     });
   });
 
