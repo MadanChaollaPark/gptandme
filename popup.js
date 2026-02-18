@@ -55,7 +55,56 @@ function getMonthTotal(byDate) {
   return sum;
 }
 
+function getRecentDays(byDate, n) {
+  const days = [];
+  const d = new Date();
+  for (let i = n - 1; i >= 0; i--) {
+    const dt = new Date(d);
+    dt.setDate(d.getDate() - i);
+    const key = `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
+    days.push(byDate[key] || 0);
+  }
+  return days;
+}
+
+function drawSparkline(values) {
+  const canvas = document.getElementById('sparkline');
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  canvas.width = rect.width * dpr;
+  canvas.height = rect.height * dpr;
+  const ctx = canvas.getContext('2d');
+  ctx.scale(dpr, dpr);
+
+  const w = rect.width;
+  const h = rect.height;
+  const max = Math.max(...values, 1);
+  const n = values.length;
+  const barGap = 2;
+  const barW = Math.max(1, (w - barGap * (n - 1)) / n);
+  const radius = Math.min(barW / 2, 3);
+
+  ctx.clearRect(0, 0, w, h);
+  values.forEach((v, i) => {
+    const barH = Math.max(2, (v / max) * (h - 4));
+    const x = i * (barW + barGap);
+    const y = h - barH;
+    ctx.fillStyle = i === n - 1 ? '#222' : '#a0a0a0';
+    ctx.beginPath();
+    ctx.moveTo(x + radius, y);
+    ctx.lineTo(x + barW - radius, y);
+    ctx.quadraticCurveTo(x + barW, y, x + barW, y + radius);
+    ctx.lineTo(x + barW, y + barH);
+    ctx.lineTo(x, y + barH);
+    ctx.lineTo(x, y + radius);
+    ctx.quadraticCurveTo(x, y, x + radius, y);
+    ctx.fill();
+  });
+}
+
 document.addEventListener('DOMContentLoaded', () => {
+  let chartDays = 7;
+
   function updateDisplay() {
     chrome.storage.local.get({ byDate: {}, total: 0 }, (data) => {
       const today = data.byDate[todayKey()] || 0;
@@ -67,10 +116,24 @@ document.addEventListener('DOMContentLoaded', () => {
       document.getElementById('total').textContent = total;
       document.getElementById('streak').textContent =
         streak > 0 ? `${streak} day${streak === 1 ? '' : 's'}` : '0 days';
+      drawSparkline(getRecentDays(data.byDate, chartDays));
     });
   }
 
   updateDisplay();
+
+  document.getElementById('btn7d').addEventListener('click', () => {
+    chartDays = 7;
+    document.getElementById('btn7d').classList.add('active');
+    document.getElementById('btn30d').classList.remove('active');
+    updateDisplay();
+  });
+  document.getElementById('btn30d').addEventListener('click', () => {
+    chartDays = 30;
+    document.getElementById('btn30d').classList.add('active');
+    document.getElementById('btn7d').classList.remove('active');
+    updateDisplay();
+  });
 
   // Listen for changes in storage and update the display
   chrome.storage.onChanged.addListener((changes, namespace) => {
