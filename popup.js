@@ -63,4 +63,20 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('resetAll').addEventListener('click', () => {
     chrome.storage.local.set({ byDate: {}, total: 0 });
   });
+
+  document.getElementById('downloadCsv').addEventListener('click', () => {
+    chrome.storage.local.get({ byDate: {} }, (data) => {
+      const rows = ['date,count'];
+      Object.keys(data.byDate)
+        .sort()
+        .forEach((date) => rows.push(`${date},${data.byDate[date]}`));
+      const blob = new Blob([rows.join('\n')], { type: 'text/csv' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'gptandme-usage.csv';
+      a.click();
+      URL.revokeObjectURL(url);
+    });
+  });
 });
