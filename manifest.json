@@ -2,11 +2,11 @@
   "manifest_version": 3,
   "name": "ChatGPT Query Counter",
   "version": "1.0.0",
-  "description": "Counts how many prompts you send to ChatGPT. That's it.",
-  "permissions": ["storage", "webRequest"],
+  "description": "Tracks how many prompts you send to ChatGPT each day, with a badge counter, sidebar widget, and popup summary.",
+  "permissions": ["storage"],
   "host_permissions": [
-    "*://chat.openai.com/*",
-    "*://chatgpt.com/*"
+    "https://chatgpt.com/*",
+    "https://chat.openai.com/*"
   ],
   "background": {
     "service_worker": "background.js",
@@ -24,7 +24,7 @@
   },
   "content_scripts": [
     {
-      "matches": ["*://chat.openai.com/*", "*://chatgpt.com/*"],
+      "matches": ["https://chat.openai.com/*", "https://chatgpt.com/*"],
       "js": ["content.js"],
       "run_at": "document_end"
     }
