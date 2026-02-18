@@ -1,12 +1,15 @@
 {
   "manifest_version": 3,
-  "name": "ChatGPT Query Counter",
+  "name": "AI Chat Query Counter",
   "version": "1.0.0",
-  "description": "Tracks how many prompts you send to ChatGPT each day, with a badge counter, sidebar widget, and popup summary.",
+  "description": "Tracks how many prompts you send to ChatGPT, Claude, Gemini, and Perplexity each day, with a badge counter and popup summary.",
   "permissions": ["storage"],
   "host_permissions": [
     "https://chatgpt.com/*",
-    "https://chat.openai.com/*"
+    "https://chat.openai.com/*",
+    "https://claude.ai/*",
+    "https://gemini.google.com/*",
+    "https://www.perplexity.ai/*"
   ],
   "background": {
     "service_worker": "background.js",
@@ -24,7 +27,13 @@
   },
   "content_scripts": [
     {
-      "matches": ["https://chat.openai.com/*", "https://chatgpt.com/*"],
+      "matches": [
+        "https://chat.openai.com/*",
+        "https://chatgpt.com/*",
+        "https://claude.ai/*",
+        "https://gemini.google.com/*",
+        "https://www.perplexity.ai/*"
+      ],
       "js": ["content.js"],
       "run_at": "document_end"
     }

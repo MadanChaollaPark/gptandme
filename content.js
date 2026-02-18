@@ -1,4 +1,44 @@
-// content.js — v0.5 (counts only)
+// content.js — v0.6 (multi-site counting)
+
+// ---------- SITE CONFIG ----------
+const SITES = {
+  "chatgpt.com": {
+    sendButtons: [
+      '[data-testid="send-button"]',
+      '#composer-submit-button',
+      'button[aria-label*="Send"]',
+    ],
+  },
+  "chat.openai.com": {
+    sendButtons: [
+      '[data-testid="send-button"]',
+      '#composer-submit-button',
+      'button[aria-label*="Send"]',
+    ],
+  },
+  "claude.ai": {
+    sendButtons: [
+      'button[aria-label="Send Message"]',
+      'fieldset button[type="button"]',
+    ],
+  },
+  "gemini.google.com": {
+    sendButtons: [
+      'button[aria-label="Send message"]',
+      'button.send-button',
+      '.send-button-container button',
+    ],
+  },
+  "www.perplexity.ai": {
+    sendButtons: [
+      'button[aria-label="Submit"]',
+      'button[aria-label="Send"]',
+    ],
+  },
+};
+
+const siteConfig = SITES[location.hostname];
+const SEND_SELECTOR = siteConfig ? siteConfig.sendButtons.join(", ") : "";
 
 // ---------- COUNTING ----------
 let lastTick = 0;
@@ -30,8 +70,7 @@ function shouldCountKey(e) {
 document.addEventListener('submit', (e) => { if (inComposer(e.target)) tick(); }, true);
 document.addEventListener('keydown', (e) => { if (inComposer(e.target) && shouldCountKey(e)) tick(); }, true);
 document.addEventListener('click', (e) => {
-  const btn = (e.target instanceof Element) && e.target.closest(
-    '[data-testid="send-button"], #composer-submit-button, button[aria-label*="Send"]'
-  );
+  if (!SEND_SELECTOR) return;
+  const btn = (e.target instanceof Element) && e.target.closest(SEND_SELECTOR);
   if (btn && inComposer(btn)) tick();
 }, true);
