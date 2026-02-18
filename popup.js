@@ -27,6 +27,34 @@ function getStreak(byDate) {
   return streak;
 }
 
+function getWeekTotal(byDate) {
+  const now = new Date();
+  const day = now.getDay();              // 0=Sun … 6=Sat
+  const monday = new Date(now);
+  monday.setDate(now.getDate() - ((day + 6) % 7)); // roll back to Monday
+  let sum = 0;
+  for (let i = 0; i < 7; i++) {
+    const d = new Date(monday);
+    d.setDate(monday.getDate() + i);
+    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    sum += byDate[key] || 0;
+  }
+  return sum;
+}
+
+function getMonthTotal(byDate) {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = now.getMonth();          // 0-indexed
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  let sum = 0;
+  for (let i = 1; i <= daysInMonth; i++) {
+    const key = `${year}-${String(month + 1).padStart(2, '0')}-${String(i).padStart(2, '0')}`;
+    sum += byDate[key] || 0;
+  }
+  return sum;
+}
+
 document.addEventListener('DOMContentLoaded', () => {
   function updateDisplay() {
     chrome.storage.local.get({ byDate: {}, total: 0 }, (data) => {
@@ -34,6 +62,8 @@ document.addEventListener('DOMContentLoaded', () => {
       const total = data.total || 0;
       const streak = getStreak(data.byDate);
       document.getElementById('today').textContent = today;
+      document.getElementById('week').textContent = getWeekTotal(data.byDate);
+      document.getElementById('month').textContent = getMonthTotal(data.byDate);
       document.getElementById('total').textContent = total;
       document.getElementById('streak').textContent =
         streak > 0 ? `${streak} day${streak === 1 ? '' : 's'}` : '0 days';
