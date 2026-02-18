@@ -19,13 +19,13 @@ function hourKey() {
 
 async function getCounts() {
   return new Promise(resolve => {
-    chrome.storage.local.get({ byDate: {}, byHour: {}, total: 0, dailyGoal: 0 }, resolve);
+    chrome.storage.sync.get({ byDate: {}, byHour: {}, total: 0, dailyGoal: 0 }, resolve);
   });
 }
 
 async function setCounts(byDate, byHour, total) {
   return new Promise(resolve => {
-    chrome.storage.local.set({ byDate, byHour, total }, resolve);
+    chrome.storage.sync.set({ byDate, byHour, total }, resolve);
   });
 }
 
@@ -82,7 +82,7 @@ async function updateIcon(count, badgeColor = '#e04040') {
 
 async function updateBadge(count) {
   const { dailyGoal } = await new Promise(r =>
-    chrome.storage.local.get({ dailyGoal: 0 }, r));
+    chrome.storage.sync.get({ dailyGoal: 0 }, r));
   const goalReached = dailyGoal > 0 && count >= dailyGoal;
   const badgeColor = goalReached ? '#22c55e' : '#e04040';
   // Set native badge as fallback for standard toolbar

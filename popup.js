@@ -76,7 +76,7 @@ function renderHeatmap(byHour) {
 
 document.addEventListener('DOMContentLoaded', () => {
   function updateDisplay() {
-    chrome.storage.local.get({ byDate: {}, byHour: {}, total: 0, dailyGoal: 0 }, (data) => {
+    chrome.storage.sync.get({ byDate: {}, byHour: {}, total: 0, dailyGoal: 0 }, (data) => {
       const today = data.byDate[todayKey()] || 0;
       const total = data.total || 0;
       const goal = data.dailyGoal || 0;
@@ -108,7 +108,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Listen for changes in storage and update the display
   chrome.storage.onChanged.addListener((changes, namespace) => {
-    if (namespace === 'local' && (changes.byDate || changes.total || changes.dailyGoal || changes.byHour)) {
+    if (namespace === 'sync' && (changes.byDate || changes.total || changes.dailyGoal || changes.byHour)) {
       updateDisplay();
     }
   });
@@ -116,12 +116,12 @@ document.addEventListener('DOMContentLoaded', () => {
   // Save daily goal
   document.getElementById('goalSave').addEventListener('click', () => {
     const val = parseInt(document.getElementById('goalInput').value, 10) || 0;
-    chrome.storage.local.set({ dailyGoal: Math.max(0, val) });
+    chrome.storage.sync.set({ dailyGoal: Math.max(0, val) });
   });
 
   // Add reset functionality
   document.getElementById('resetToday').addEventListener('click', () => {
-    chrome.storage.local.get({ byDate: {}, byHour: {}, total: 0 }, (data) => {
+    chrome.storage.sync.get({ byDate: {}, byHour: {}, total: 0 }, (data) => {
       const key = todayKey();
       const todayCount = data.byDate[key] || 0;
       const newByDate = { ...data.byDate };
@@ -132,11 +132,11 @@ document.addEventListener('DOMContentLoaded', () => {
         if (hKey.startsWith(key)) delete newByHour[hKey];
       }
       const newTotal = Math.max(0, (data.total || 0) - todayCount);
-      chrome.storage.local.set({ byDate: newByDate, byHour: newByHour, total: newTotal });
+      chrome.storage.sync.set({ byDate: newByDate, byHour: newByHour, total: newTotal });
     });
   });
 
   document.getElementById('resetAll').addEventListener('click', () => {
-    chrome.storage.local.set({ byDate: {}, byHour: {}, total: 0 });
+    chrome.storage.sync.set({ byDate: {}, byHour: {}, total: 0 });
   });
 });
