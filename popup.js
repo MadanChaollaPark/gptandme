@@ -74,9 +74,20 @@ function renderHeatmap(byHour) {
   container.innerHTML = html;
 }
 
+function getSessionStats(sessions) {
+  const entries = Object.values(sessions);
+  // Only count sessions that had at least 1 prompt
+  const active = entries.filter(s => s.prompts > 0);
+  const count = active.length;
+  if (count === 0) return { count: 0, avg: 0, max: 0 };
+  const total = active.reduce((sum, s) => sum + s.prompts, 0);
+  const max = Math.max(...active.map(s => s.prompts));
+  return { count, avg: Math.round((total / count) * 10) / 10, max };
+}
+
 document.addEventListener('DOMContentLoaded', () => {
   function updateDisplay() {
-    chrome.storage.local.get({ byDate: {}, byHour: {}, total: 0, dailyGoal: 0 }, (data) => {
+    chrome.storage.local.get({ byDate: {}, byHour: {}, total: 0, dailyGoal: 0, sessions: {} }, (data) => {
       const today = data.byDate[todayKey()] || 0;
       const total = data.total || 0;
       const goal = data.dailyGoal || 0;
@@ -100,15 +111,32 @@ document.addEventListener('DOMContentLoaded', () => {
         progressWrap.style.display = 'none';
       }
 
+      // Session stats
+      const ss = getSessionStats(data.sessions || {});
+      document.getElementById('sessionCount').textContent = ss.count;
+      document.getElementById('sessionAvg').textContent = ss.avg;
+      document.getElementById('sessionMax').textContent = ss.max + (ss.max === 1 ? ' prompt' : ' prompts');
+
       renderHeatmap(data.byHour || {});
     });
   }
 
   updateDisplay();
 
+  // Load notification threshold
+  chrome.storage.local.get({ notifyAt: 0 }, (data) => {
+    document.getElementById('notifyInput').value = data.notifyAt || '';
+  });
+
+  // Save notification threshold
+  document.getElementById('notifySave').addEventListener('click', () => {
+    const val = parseInt(document.getElementById('notifyInput').value, 10) || 0;
+    chrome.storage.local.set({ notifyAt: Math.max(0, val), notifiedDate: '' });
+  });
+
   // Listen for changes in storage and update the display
   chrome.storage.onChanged.addListener((changes, namespace) => {
-    if (namespace === 'local' && (changes.byDate || changes.total || changes.dailyGoal || changes.byHour)) {
+    if (namespace === 'local' && (changes.byDate || changes.total || changes.dailyGoal || changes.byHour || changes.sessions)) {
       updateDisplay();
     }
   });
@@ -137,6 +165,6 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   document.getElementById('resetAll').addEventListener('click', () => {
-    chrome.storage.local.set({ byDate: {}, byHour: {}, total: 0 });
+    chrome.storage.local.set({ byDate: {}, byHour: {}, total: 0, sessions: {}, currentSessionId: null });
   });
 });

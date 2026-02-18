@@ -20,6 +20,10 @@
       .progress-fill { height: 100%; border-radius: 4px; transition: width 0.3s ease, background 0.3s ease; }
       .progress-label { font-size: 11px; color: #666; text-align: right; margin-bottom: 2px; }
 
+      /* Sessions */
+      .session-wrap { margin: 12px 0 4px; }
+      .section-title { font-size: 12px; color: #666; margin-bottom: 4px; font-weight: 600; }
+
       /* Hourly heatmap */
       .heatmap-wrap { margin: 12px 0 4px; }
       .heatmap-wrap > .hm-title { font-size: 12px; color: #666; margin-bottom: 6px; }
@@ -59,9 +63,22 @@
         <div class="progress-track"><div class="progress-fill" id="progressFill"></div></div>
       </div>
     </div>
+    <div class="session-wrap">
+      <div class="section-title">Sessions</div>
+      <div class="row"><div>Total sessions</div><div id="sessionCount">0</div></div>
+      <div class="row"><div>Avg prompts/session</div><div id="sessionAvg">0</div></div>
+      <div class="row"><div>Longest session</div><div id="sessionMax">0</div></div>
+    </div>
     <div class="heatmap-wrap">
       <div class="hm-title">Peak hours</div>
       <div id="heatmap"></div>
+    </div>
+    <div class="goal-row">
+      <label>Notify at</label>
+      <div>
+        <input type="number" id="notifyInput" class="goal-input" min="0" placeholder="off">
+        <button id="notifySave" class="goal-save">Save</button>
+      </div>
     </div>
     <div class="row">
       <button id="resetToday">Reset today</button>

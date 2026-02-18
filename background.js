@@ -19,7 +19,7 @@ function hourKey() {
 
 async function getCounts() {
   return new Promise(resolve => {
-    chrome.storage.local.get({ byDate: {}, byHour: {}, total: 0, dailyGoal: 0 }, resolve);
+    chrome.storage.local.get({ byDate: {}, byHour: {}, total: 0, dailyGoal: 0, sessions: {}, currentSessionId: null }, resolve);
   });
 }
 
@@ -92,6 +92,39 @@ async function updateBadge(count) {
   await updateIcon(count, badgeColor);
 }
 
+// --- Session tracking ---
+async function startSession(site, path) {
+  const { sessions, currentSessionId } = await getCounts();
+  // If we already have a session for this exact path, keep it
+  if (currentSessionId && sessions[currentSessionId] && sessions[currentSessionId].path === path) {
+    return;
+  }
+  const id = `s-${Date.now()}`;
+  sessions[id] = { start: Date.now(), prompts: 0, site: site || '', path: path || '' };
+  await new Promise(r => chrome.storage.local.set({ sessions, currentSessionId: id }, r));
+}
+
+async function incrementSession() {
+  const { sessions, currentSessionId } = await getCounts();
+  if (!currentSessionId || !sessions[currentSessionId]) return;
+  sessions[currentSessionId].prompts += 1;
+  await new Promise(r => chrome.storage.local.set({ sessions }, r));
+}
+
+async function checkNotification(todayCount) {
+  const { notifyAt, notifiedDate } = await new Promise(r =>
+    chrome.storage.local.get({ notifyAt: 0, notifiedDate: '' }, r));
+  if (notifyAt > 0 && todayCount >= notifyAt && notifiedDate !== todayKey()) {
+    chrome.storage.local.set({ notifiedDate: todayKey() });
+    chrome.notifications.create('prompt-limit', {
+      type: 'basic',
+      iconUrl: 'icons/icon128.png',
+      title: 'Prompt check-in',
+      message: `You've sent ${todayCount} prompts today — time for a break?`,
+    });
+  }
+}
+
 async function increment() {
   const { byDate, byHour, total } = await getCounts();
   const dateKey = todayKey();
@@ -100,7 +133,9 @@ async function increment() {
   byHour[hKey] = (byHour[hKey] || 0) + 1;
   const newTotal = (total || 0) + 1;
   await setCounts(byDate, byHour, newTotal);
+  await incrementSession();
   await updateBadge(byDate[dateKey]);
+  await checkNotification(byDate[dateKey]);
 }
 
 // Initialize badge on install/activate
@@ -115,10 +150,12 @@ chrome.runtime.onStartup.addListener(async () => {
   await updateBadge(byDate[todayKey()] || 0);
 });
 
-// Listen for tick messages from content script
+// Listen for messages from content script
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === "tick") {
     increment();
+  } else if (message.type === "new-session") {
+    startSession(message.site, message.path);
   }
 });
 

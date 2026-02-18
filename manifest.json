@@ -3,7 +3,7 @@
   "name": "ChatGPT Query Counter",
   "version": "1.0.0",
   "description": "Tracks how many prompts you send to ChatGPT each day, with a badge counter, sidebar widget, and popup summary.",
-  "permissions": ["storage"],
+  "permissions": ["storage", "notifications"],
   "host_permissions": [
     "https://chatgpt.com/*",
     "https://chat.openai.com/*"
