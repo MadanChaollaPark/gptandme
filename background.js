@@ -19,13 +19,13 @@ function hourKey() {
 
 async function getCounts() {
   return new Promise(resolve => {
-    chrome.storage.local.get({ byDate: {}, byHour: {}, total: 0, dailyGoal: 0, sessions: {}, currentSessionId: null }, resolve);
+    chrome.storage.local.get({ byDate: {}, byHour: {}, byModel: {}, total: 0, dailyGoal: 0, sessions: {}, currentSessionId: null }, resolve);
   });
 }
 
-async function setCounts(byDate, byHour, total) {
+async function setCounts(byDate, byHour, byModel, total) {
   return new Promise(resolve => {
-    chrome.storage.local.set({ byDate, byHour, total }, resolve);
+    chrome.storage.local.set({ byDate, byHour, byModel, total }, resolve);
   });
 }
 
@@ -125,14 +125,16 @@ async function checkNotification(todayCount) {
   }
 }
 
-async function increment() {
-  const { byDate, byHour, total } = await getCounts();
+async function increment(model = 'unknown') {
+  const { byDate, byHour, byModel, total } = await getCounts();
   const dateKey = todayKey();
   const hKey = hourKey();
   byDate[dateKey] = (byDate[dateKey] || 0) + 1;
   byHour[hKey] = (byHour[hKey] || 0) + 1;
+  if (!byModel[dateKey]) byModel[dateKey] = {};
+  byModel[dateKey][model] = (byModel[dateKey][model] || 0) + 1;
   const newTotal = (total || 0) + 1;
-  await setCounts(byDate, byHour, newTotal);
+  await setCounts(byDate, byHour, byModel, newTotal);
   await incrementSession();
   await updateBadge(byDate[dateKey]);
   await checkNotification(byDate[dateKey]);
@@ -153,7 +155,7 @@ chrome.runtime.onStartup.addListener(async () => {
 // Listen for messages from content script
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === "tick") {
-    increment();
+    increment(message.model || 'unknown');
   } else if (message.type === "new-session") {
     startSession(message.site, message.path);
   }

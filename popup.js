@@ -1,5 +1,21 @@
-
 // popup.js
+
+const PRICE_PER_PROMPT = {
+  'gpt-4o': 0.02,
+  'gpt-4o-mini': 0.001,
+  'gpt-4.5': 0.15,
+  'gpt-4': 0.10,
+  'o1': 0.15,
+  'o1-mini': 0.03,
+  'o3': 0.20,
+  'o3-mini': 0.01,
+  'claude-sonnet': 0.025,
+  'claude-opus': 0.08,
+  'claude-haiku': 0.002,
+  'gemini-flash': 0.001,
+  'gemini-pro': 0.005,
+  'unknown': 0.01,
+};
 
 function todayKey() {
   const d = new Date();
@@ -87,7 +103,7 @@ function getSessionStats(sessions) {
 
 document.addEventListener('DOMContentLoaded', () => {
   function updateDisplay() {
-    chrome.storage.local.get({ byDate: {}, byHour: {}, total: 0, dailyGoal: 0, sessions: {} }, (data) => {
+    chrome.storage.local.get({ byDate: {}, byHour: {}, total: 0, dailyGoal: 0, sessions: {}, byModel: {} }, (data) => {
       const today = data.byDate[todayKey()] || 0;
       const total = data.total || 0;
       const goal = data.dailyGoal || 0;
@@ -117,6 +133,14 @@ document.addEventListener('DOMContentLoaded', () => {
       document.getElementById('sessionAvg').textContent = ss.avg;
       document.getElementById('sessionMax').textContent = ss.max + (ss.max === 1 ? ' prompt' : ' prompts');
 
+      // Cost estimation
+      const todayModels = data.byModel[todayKey()] || {};
+      let cost = 0;
+      for (const [model, count] of Object.entries(todayModels)) {
+        cost += (PRICE_PER_PROMPT[model] || PRICE_PER_PROMPT['unknown']) * count;
+      }
+      document.getElementById('estCost').textContent = `~$${cost.toFixed(2)}`;
+
       renderHeatmap(data.byHour || {});
     });
   }
@@ -136,7 +160,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Listen for changes in storage and update the display
   chrome.storage.onChanged.addListener((changes, namespace) => {
-    if (namespace === 'local' && (changes.byDate || changes.total || changes.dailyGoal || changes.byHour || changes.sessions)) {
+    if (namespace === 'local' && (changes.byDate || changes.total || changes.dailyGoal || changes.byHour || changes.sessions || changes.byModel)) {
       updateDisplay();
     }
   });
@@ -149,7 +173,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Add reset functionality
   document.getElementById('resetToday').addEventListener('click', () => {
-    chrome.storage.local.get({ byDate: {}, byHour: {}, total: 0 }, (data) => {
+    chrome.storage.local.get({ byDate: {}, byHour: {}, byModel: {}, total: 0 }, (data) => {
       const key = todayKey();
       const todayCount = data.byDate[key] || 0;
       const newByDate = { ...data.byDate };
@@ -159,12 +183,15 @@ document.addEventListener('DOMContentLoaded', () => {
       for (const hKey of Object.keys(newByHour)) {
         if (hKey.startsWith(key)) delete newByHour[hKey];
       }
+      // Also remove today's model entries
+      const newByModel = { ...data.byModel };
+      delete newByModel[key];
       const newTotal = Math.max(0, (data.total || 0) - todayCount);
-      chrome.storage.local.set({ byDate: newByDate, byHour: newByHour, total: newTotal });
+      chrome.storage.local.set({ byDate: newByDate, byHour: newByHour, byModel: newByModel, total: newTotal });
     });
   });
 
   document.getElementById('resetAll').addEventListener('click', () => {
-    chrome.storage.local.set({ byDate: {}, byHour: {}, total: 0, sessions: {}, currentSessionId: null });
+    chrome.storage.local.set({ byDate: {}, byHour: {}, byModel: {}, total: 0, sessions: {}, currentSessionId: null });
   });
 });
