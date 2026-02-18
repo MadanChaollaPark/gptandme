@@ -11,12 +11,58 @@
       button:hover { background: #eee; }
       code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
       .muted { color: #666; font-size: 12px; margin-top: 10px; }
+      .goal-row { display: flex; justify-content: space-between; align-items: center; margin: 8px 0; }
+      .goal-row label { font-size: 13px; }
+      .goal-input { width: 52px; padding: 3px 6px; border: 1px solid #ddd; border-radius: 6px; font-size: 13px; text-align: center; }
+      .goal-save { padding: 3px 10px; border-radius: 6px; border: 1px solid #ddd; background: #f5f5f5; cursor: pointer; font-size: 12px; }
+      .goal-save:hover { background: #eee; }
+      .progress-track { height: 8px; background: #e5e7eb; border-radius: 4px; margin: 4px 0 8px; overflow: hidden; }
+      .progress-fill { height: 100%; border-radius: 4px; transition: width 0.3s ease, background 0.3s ease; }
+      .progress-label { font-size: 11px; color: #666; text-align: right; margin-bottom: 2px; }
+
+      /* Hourly heatmap */
+      .heatmap-wrap { margin: 12px 0 4px; }
+      .heatmap-wrap > .hm-title { font-size: 12px; color: #666; margin-bottom: 6px; }
+      .hm-grid {
+        display: grid;
+        grid-template-columns: 28px repeat(24, 9px);
+        grid-auto-rows: 9px;
+        gap: 2px;
+        align-items: center;
+      }
+      .hm-corner { }
+      .hm-hlabel { font-size: 8px; color: #999; text-align: center; line-height: 9px; }
+      .hm-dlabel { font-size: 9px; color: #666; line-height: 9px; white-space: nowrap; }
+      .hm-cell { width: 9px; height: 9px; border-radius: 2px; }
+      .hm-legend {
+        display: flex; align-items: center; gap: 3px;
+        justify-content: flex-end; margin-top: 4px;
+      }
+      .hm-legend span { font-size: 9px; color: #999; }
+      .hm-legend .hm-cell { width: 9px; height: 9px; }
     </style>
   </head>
   <body>
     <h1><a href="https://gptandme.site" target="_blank" rel="noopener noreferrer">GPTandme.site</a></h1>
     <div class="row"><div>Today</div><div id="today">0</div></div>
     <div class="row"><div>Total</div><div id="total">0</div></div>
+    <div id="goalSection">
+      <div class="goal-row">
+        <label>Daily goal</label>
+        <div>
+          <input type="number" id="goalInput" class="goal-input" min="0" placeholder="0">
+          <button id="goalSave" class="goal-save">Save</button>
+        </div>
+      </div>
+      <div id="progressWrap" style="display:none;">
+        <div class="progress-label" id="progressLabel"></div>
+        <div class="progress-track"><div class="progress-fill" id="progressFill"></div></div>
+      </div>
+    </div>
+    <div class="heatmap-wrap">
+      <div class="hm-title">Peak hours</div>
+      <div id="heatmap"></div>
+    </div>
     <div class="row">
       <button id="resetToday">Reset today</button>
       <button id="resetAll">Reset all</button>

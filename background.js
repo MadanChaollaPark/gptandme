@@ -7,15 +7,25 @@ function todayKey() {
   return `${y}-${m}-${day}`;
 }
 
+// Utility: yyyy-mm-dd-hh for per-hour counts
+function hourKey() {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  const h = String(d.getHours()).padStart(2, '0');
+  return `${y}-${m}-${day}-${h}`;
+}
+
 async function getCounts() {
   return new Promise(resolve => {
-    chrome.storage.local.get({ byDate: {}, total: 0 }, resolve);
+    chrome.storage.local.get({ byDate: {}, byHour: {}, total: 0, dailyGoal: 0 }, resolve);
   });
 }
 
-async function setCounts(byDate, total) {
+async function setCounts(byDate, byHour, total) {
   return new Promise(resolve => {
-    chrome.storage.local.set({ byDate, total }, resolve);
+    chrome.storage.local.set({ byDate, byHour, total }, resolve);
   });
 }
 
@@ -31,7 +41,7 @@ async function loadBaseIcon() {
   return baseIconBitmap;
 }
 
-async function updateIcon(count) {
+async function updateIcon(count, badgeColor = '#e04040') {
   const size = 128;
   const canvas = new OffscreenCanvas(size, size);
   const ctx = canvas.getContext('2d');
@@ -57,7 +67,7 @@ async function updateIcon(count) {
   const bx = size - bw / 2 - 2;
   const by = size - bh / 2 - 2;
 
-  ctx.fillStyle = '#e04040';
+  ctx.fillStyle = badgeColor;
   ctx.beginPath();
   ctx.roundRect(bx - bw / 2, by - bh / 2, bw, bh, bh / 2);
   ctx.fill();
@@ -71,19 +81,26 @@ async function updateIcon(count) {
 }
 
 async function updateBadge(count) {
+  const { dailyGoal } = await new Promise(r =>
+    chrome.storage.local.get({ dailyGoal: 0 }, r));
+  const goalReached = dailyGoal > 0 && count >= dailyGoal;
+  const badgeColor = goalReached ? '#22c55e' : '#e04040';
   // Set native badge as fallback for standard toolbar
   chrome.action.setBadgeText({ text: String(count) });
+  chrome.action.setBadgeBackgroundColor({ color: goalReached ? '#22c55e' : '#444' });
   // Draw count directly on the icon for layouts that hide badges
-  await updateIcon(count);
+  await updateIcon(count, badgeColor);
 }
 
 async function increment() {
-  const { byDate, total } = await getCounts();
-  const key = todayKey();
-  byDate[key] = (byDate[key] || 0) + 1;
+  const { byDate, byHour, total } = await getCounts();
+  const dateKey = todayKey();
+  const hKey = hourKey();
+  byDate[dateKey] = (byDate[dateKey] || 0) + 1;
+  byHour[hKey] = (byHour[hKey] || 0) + 1;
   const newTotal = (total || 0) + 1;
-  await setCounts(byDate, newTotal);
-  await updateBadge(byDate[key]);
+  await setCounts(byDate, byHour, newTotal);
+  await updateBadge(byDate[dateKey]);
 }
 
 // Initialize badge on install/activate
