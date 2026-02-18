@@ -11,12 +11,20 @@
       button:hover { background: #eee; }
       code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
       .muted { color: #666; font-size: 12px; margin-top: 10px; }
+      .section-title { font-size: 12px; color: #666; margin: 12px 0 4px; font-weight: 600; }
     </style>
   </head>
   <body>
     <h1><a href="https://gptandme.site" target="_blank" rel="noopener noreferrer">GPTandme.site</a></h1>
     <div class="row"><div>Today</div><div id="today">0</div></div>
     <div class="row"><div>Total</div><div id="total">0</div></div>
+    <div id="modelSection" style="display:none;">
+      <div class="section-title">Models (today)</div>
+      <div id="modelBreakdown"></div>
+    </div>
+    <div class="row">
+      <button id="downloadCsv">Download CSV</button>
+    </div>
     <div class="row">
       <button id="resetToday">Reset today</button>
       <button id="resetAll">Reset all</button>

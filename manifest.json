@@ -22,6 +22,12 @@
     "48": "icons/icon48.png",
     "128": "icons/icon128.png"
   },
+  "web_accessible_resources": [
+    {
+      "resources": ["inject.js"],
+      "matches": ["*://chatgpt.com/*", "*://chat.openai.com/*"]
+    }
+  ],
   "content_scripts": [
     {
       "matches": ["*://chat.openai.com/*", "*://chatgpt.com/*"],

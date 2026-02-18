@@ -9,22 +9,24 @@ function todayKey() {
 
 async function getCounts() {
   return new Promise(resolve => {
-    chrome.storage.local.get({ byDate: {}, total: 0 }, resolve);
+    chrome.storage.local.get({ byDate: {}, byModel: {}, total: 0 }, resolve);
   });
 }
 
-async function setCounts(byDate, total) {
+async function setCounts(byDate, byModel, total) {
   return new Promise(resolve => {
-    chrome.storage.local.set({ byDate, total }, resolve);
+    chrome.storage.local.set({ byDate, byModel, total }, resolve);
   });
 }
 
-async function increment() {
-  const { byDate, total } = await getCounts();
+async function increment(model = 'unknown') {
+  const { byDate, byModel, total } = await getCounts();
   const key = todayKey();
   byDate[key] = (byDate[key] || 0) + 1;
+  if (!byModel[key]) byModel[key] = {};
+  byModel[key][model] = (byModel[key][model] || 0) + 1;
   const newTotal = (total || 0) + 1;
-  await setCounts(byDate, newTotal);
+  await setCounts(byDate, byModel, newTotal);
   chrome.action.setBadgeText({ text: String(byDate[key]) });
 }
 
@@ -92,7 +94,7 @@ function isUserSendPayload(payload) {
 // Listen for tick messages from content script
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === "tick") {
-    increment();
+    increment(message.model || 'unknown');
   }
 });
 
@@ -106,7 +108,7 @@ chrome.webRequest.onBeforeRequest.addListener(
   (details) => {
     const payload = parseJsonFromRequestBody(details);
     if (isUserSendPayload(payload)) {
-      increment();
+      increment(payload.model || 'unknown');
     }
   },
   { urls: urlFilters },
