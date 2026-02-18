@@ -26,6 +26,31 @@ function shouldCountKey(e) {
   return !e.shiftKey; // Enter (no Shift) sends
 }
 
+// ---------- SESSION TRACKING ----------
+let lastPath = location.pathname;
+
+function signalNewSession() {
+  chrome.runtime?.sendMessage?.({
+    type: "new-session",
+    site: location.hostname,
+    path: location.pathname,
+  });
+}
+
+function checkUrlChange() {
+  if (location.pathname !== lastPath) {
+    lastPath = location.pathname;
+    signalNewSession();
+  }
+}
+
+// SPA navigations don't always fire popstate, so poll as well
+setInterval(checkUrlChange, 1000);
+window.addEventListener('popstate', checkUrlChange);
+
+// Signal a session on initial page load
+signalNewSession();
+
 // capture so React can't swallow events before us
 document.addEventListener('submit', (e) => { if (inComposer(e.target)) tick(); }, true);
 document.addEventListener('keydown', (e) => { if (inComposer(e.target) && shouldCountKey(e)) tick(); }, true);
