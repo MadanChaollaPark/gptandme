@@ -12,12 +12,18 @@
       code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
       .muted { color: #666; font-size: 12px; margin-top: 10px; }
       .section-title { font-size: 12px; color: #666; margin: 12px 0 4px; font-weight: 600; }
+      .value { font-variant-numeric: tabular-nums; }
     </style>
   </head>
   <body>
     <h1><a href="https://gptandme.site" target="_blank" rel="noopener noreferrer">GPTandme.site</a></h1>
-    <div class="row"><div>Today</div><div id="today">0</div></div>
-    <div class="row"><div>Total</div><div id="total">0</div></div>
+    <div class="row"><div>Today</div><div id="today" class="value">0</div></div>
+    <div class="row"><div>This week</div><div id="week" class="value">0</div></div>
+    <div class="row"><div>This month</div><div id="month" class="value">0</div></div>
+    <div class="row"><div>Streak</div><div id="streak" class="value">0 days</div></div>
+    <div class="row"><div>Total</div><div id="total" class="value">0</div></div>
+    <div class="row"><div>Est. today</div><div id="cost" class="value">$0.000</div></div>
+    <div class="row"><div>Sessions</div><div id="sessions" class="value">0</div></div>
     <div id="modelSection" style="display:none;">
       <div class="section-title">Models (today)</div>
       <div id="modelBreakdown"></div>
@@ -30,6 +36,7 @@
       <button id="resetAll">Reset all</button>
     </div>
     <div class="muted">Counts are stored locally. Only user sends are counted.</div>
+    <script src="shared.js"></script>
     <script src="popup.js"></script>
   </body>
 </html>
