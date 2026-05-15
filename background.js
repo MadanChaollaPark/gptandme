@@ -1,33 +1,58 @@
-// Utility: yyyy-mm-dd for per-day counts
-function todayKey() {
-  const d = new Date();
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${y}-${m}-${day}`;
-}
+importScripts('shared.js');
+
+const { hourKey, isUserSendPayload, todayKey } = GptAndMeShared;
+const DEDUPE_MS = 700;
+let lastIncrement = { key: null, at: 0 };
 
 async function getCounts() {
   return new Promise(resolve => {
-    chrome.storage.local.get({ byDate: {}, byModel: {}, total: 0 }, resolve);
+    chrome.storage.local.get(
+      { byDate: {}, byModel: {}, byHour: {}, sessions: {}, total: 0 },
+      resolve
+    );
   });
 }
 
-async function setCounts(byDate, byModel, total) {
+async function setCounts(data) {
   return new Promise(resolve => {
-    chrome.storage.local.set({ byDate, byModel, total }, resolve);
+    chrome.storage.local.set(data, resolve);
   });
 }
 
-async function increment(model = 'unknown') {
-  const { byDate, byModel, total } = await getCounts();
-  const key = todayKey();
-  byDate[key] = (byDate[key] || 0) + 1;
-  if (!byModel[key]) byModel[key] = {};
-  byModel[key][model] = (byModel[key][model] || 0) + 1;
+function shouldDedupe(site, sessionId) {
+  const now = Date.now();
+  const key = `${site || 'unknown'}:${sessionId || 'unknown'}`;
+  if (lastIncrement.key === key && now - lastIncrement.at < DEDUPE_MS) {
+    return true;
+  }
+  lastIncrement = { key, at: now };
+  return false;
+}
+
+async function increment(model = 'unknown', site = 'unknown', sessionId = 'default') {
+  if (shouldDedupe(site, sessionId)) return;
+
+  const { byDate, byModel, byHour, sessions, total } = await getCounts();
+  const day = todayKey();
+  const hour = hourKey();
+
+  byDate[day] = (byDate[day] || 0) + 1;
+  byHour[hour] = (byHour[hour] || 0) + 1;
+
+  if (!byModel[day]) byModel[day] = {};
+  byModel[day][model] = (byModel[day][model] || 0) + 1;
+
+  if (!sessions[sessionId]) {
+    sessions[sessionId] = { prompts: 0, site, startedAt: new Date().toISOString() };
+  }
+  sessions[sessionId].prompts = (sessions[sessionId].prompts || 0) + 1;
+  sessions[sessionId].site = site;
+  sessions[sessionId].lastModel = model;
+  sessions[sessionId].lastSeenAt = new Date().toISOString();
+
   const newTotal = (total || 0) + 1;
-  await setCounts(byDate, byModel, newTotal);
-  chrome.action.setBadgeText({ text: String(byDate[key]) });
+  await setCounts({ byDate, byModel, byHour, sessions, total: newTotal });
+  chrome.action.setBadgeText({ text: String(byDate[day]) });
 }
 
 // Initialize badge on install/activate
@@ -42,7 +67,6 @@ chrome.runtime.onStartup.addListener(async () => {
   chrome.action.setBadgeText({ text: String(byDate[todayKey()] || 0) });
 });
 
-// Decode requestBody raw bytes to JSON
 function parseJsonFromRequestBody(details) {
   const raw = details.requestBody?.raw?.[0]?.bytes;
   if (!raw) return null;
@@ -54,47 +78,12 @@ function parseJsonFromRequestBody(details) {
   }
 }
 
-// Heuristics: count only when a "user" message is being sent.
-// Old ChatGPT UI hits /backend-api/conversation with {action:"next", messages:[{author.role:"user"}]}
-// Newer payloads use messages:[{role:"user", content:[{type:"input_text", text:"..."}]}]
-function isUserSendPayload(payload) {
-  if (!payload) return false;
-
-  // Typical "action": "next"
-  if (payload.action && payload.action !== "next") return false;
-
-  const msgs = payload.messages;
-  if (!Array.isArray(msgs)) return false;
-
-  // Count only if at least one user-authored message is present in THIS request.
-  return msgs.some(m => {
-    const role = m?.author?.role || m?.role;
-    if (role !== "user") return false;
-    // Guard against API-style requests that replay whole history.
-    // Require some fresh user text in this message.
-    const content = m?.content;
-    if (typeof content === "string" && content.trim().length > 0) return true;
-    if (Array.isArray(content)) {
-      return content.some(part => {
-        if (typeof part === "string") return part.trim().length > 0;
-        if (part?.type === "input_text" && typeof part?.text === "string") {
-          return part.text.trim().length > 0;
-        }
-        return false;
-      });
-    }
-    // Some UIs send {parts:["..."]} inside content
-    if (content?.parts && Array.isArray(content.parts)) {
-      return content.parts.some(p => typeof p === "string" && p.trim().length > 0);
-    }
-    return false;
-  });
-}
-
 // Listen for tick messages from content script
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === "tick") {
-    increment(message.model || 'unknown');
+    const site = message.site || sender.tab?.url || 'unknown';
+    const sessionId = message.sessionId || `tab-${sender.tab?.id ?? 'unknown'}`;
+    increment(message.model || 'unknown', site, sessionId);
   }
 });
 
@@ -108,7 +97,7 @@ chrome.webRequest.onBeforeRequest.addListener(
   (details) => {
     const payload = parseJsonFromRequestBody(details);
     if (isUserSendPayload(payload)) {
-      increment(payload.model || 'unknown');
+      increment(payload.model || 'unknown', 'chatgpt.com', `tab-${details.tabId}`);
     }
   },
   { urls: urlFilters },
