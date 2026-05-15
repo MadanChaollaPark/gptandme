@@ -1,0 +1,10 @@
+.DS_Store
+.claude/
+dist/
+logs/
+tmp/
+*.zip
+*.log
+node_modules/
+coverage/
+rust/target/
