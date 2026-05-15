@@ -6,7 +6,11 @@
   "permissions": ["storage", "webRequest"],
   "host_permissions": [
     "*://chat.openai.com/*",
-    "*://chatgpt.com/*"
+    "*://chatgpt.com/*",
+    "*://claude.ai/*",
+    "*://gemini.google.com/*",
+    "*://perplexity.ai/*",
+    "*://www.perplexity.ai/*"
   ],
   "background": {
     "service_worker": "background.js",
@@ -30,8 +34,15 @@
   ],
   "content_scripts": [
     {
-      "matches": ["*://chat.openai.com/*", "*://chatgpt.com/*"],
-      "js": ["content.js"],
+      "matches": [
+        "*://chat.openai.com/*",
+        "*://chatgpt.com/*",
+        "*://claude.ai/*",
+        "*://gemini.google.com/*",
+        "*://perplexity.ai/*",
+        "*://www.perplexity.ai/*"
+      ],
+      "js": ["shared.js", "content.js"],
       "run_at": "document_end"
     }
   ]
