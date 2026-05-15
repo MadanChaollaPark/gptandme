@@ -1,14 +1,22 @@
-// content.js — v0.6 (counts + model detection)
+// content.js - counts sends and detects model/site context.
+
+const { SITES, shouldCountKey } = GptAndMeShared;
+const siteEntry = Object.entries(SITES).find(([, config]) =>
+  (config.hosts || []).includes(location.hostname)
+) || [location.hostname, { sendButtons: [] }];
+const [siteName, siteConfig] = siteEntry;
 
 // ---------- MODEL DETECTION ----------
 
 // Best signal: intercept fetch to /backend-api/conversation (ChatGPT).
 // inject.js runs in the page context and dispatches a custom event with the
 // model slug read straight from the request body.
-const s = document.createElement('script');
-s.src = chrome.runtime.getURL('inject.js');
-s.onload = () => s.remove();
-(document.head || document.documentElement).appendChild(s);
+if (siteName === 'chatgpt.com' || siteName === 'chat.openai.com') {
+  const s = document.createElement('script');
+  s.src = chrome.runtime.getURL('inject.js');
+  s.onload = () => s.remove();
+  (document.head || document.documentElement).appendChild(s);
+}
 
 let lastDetectedModel = null;
 
@@ -37,12 +45,23 @@ function detectModel() {
 let lastTick = 0;
 const throttleMs = 400;
 
+function sessionId() {
+  const conversationMatch = location.pathname.match(/\/c\/[^/?#]+/);
+  const pathKey = conversationMatch ? conversationMatch[0] : location.pathname || '/';
+  return `${siteName}:${pathKey}`;
+}
+
 function tick() {
   const now = Date.now();
   if (now - lastTick < throttleMs) return;
   lastTick = now;
   const model = detectModel();
-  chrome.runtime?.sendMessage?.({ type: "tick", model });
+  chrome.runtime?.sendMessage?.({
+    type: "tick",
+    model,
+    site: siteName,
+    sessionId: sessionId(),
+  });
 }
 
 function inComposer(el) {
@@ -53,20 +72,11 @@ function inComposer(el) {
   return false;
 }
 
-function shouldCountKey(e) {
-  if (e.isComposing || e.altKey) return false;
-  if (e.key !== 'Enter') return false;
-  if (e.ctrlKey || e.metaKey) return true; // Ctrl/Cmd+Enter
-  return !e.shiftKey; // Enter (no Shift) sends
-}
-
 // capture so React can't swallow events before us
 document.addEventListener('submit', (e) => { if (inComposer(e.target)) tick(); }, true);
 document.addEventListener('keydown', (e) => { if (inComposer(e.target) && shouldCountKey(e)) tick(); }, true);
 document.addEventListener('click', (e) => {
-  const btn = (e.target instanceof Element) && e.target.closest(
-    '[data-testid="send-button"], #composer-submit-button, button[aria-label*="Send"]'
-  );
+  const selector = siteConfig.sendButtons.join(', ');
+  const btn = selector && (e.target instanceof Element) && e.target.closest(selector);
   if (btn && inComposer(btn)) tick();
 }, true);
-
