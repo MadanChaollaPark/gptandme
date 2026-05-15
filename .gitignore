@@ -3,6 +3,7 @@
 dist/
 logs/
 tmp/
+todo.g3.md
 *.zip
 *.log
 node_modules/
