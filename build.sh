@@ -14,6 +14,7 @@ zip -j "$OUT" \
   shared.js \
   background.js \
   content.js \
+  inject.js \
   popup.html \
   popup.js \
   privacy.html
