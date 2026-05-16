@@ -1,7 +1,7 @@
 // Tests for feat/cost-estimation
 const { describe, it } = require('node:test');
 const assert = require('node:assert/strict');
-const { estimateCost, PRICE_PER_PROMPT } = require('./helpers');
+const { estimateCost, getModelCountsForDate, PRICE_PER_PROMPT } = require('./helpers');
 
 describe('PRICE_PER_PROMPT', () => {
   it('has an unknown fallback price', () => {
@@ -52,5 +52,33 @@ describe('estimateCost', () => {
     const cost = estimateCost({ 'claude-opus': 2, 'mystery': 1 });
     const expected = 2 * 0.08 + 1 * PRICE_PER_PROMPT['unknown'];
     assert.equal(cost, expected);
+  });
+});
+
+describe('getModelCountsForDate', () => {
+  it('uses model counts when they cover the date total', () => {
+    const counts = getModelCountsForDate(
+      { '2026-05-16': 3 },
+      { '2026-05-16': { 'gpt-4o': 2, 'o3-mini': 1 } },
+      '2026-05-16'
+    );
+
+    assert.deepEqual(counts, { 'gpt-4o': 2, 'o3-mini': 1 });
+  });
+
+  it('adds unknown counts for legacy date totals without model data', () => {
+    const counts = getModelCountsForDate({ '2026-05-16': 13 }, {}, '2026-05-16');
+
+    assert.deepEqual(counts, { unknown: 13 });
+  });
+
+  it('adds only the missing remainder as unknown for partial model data', () => {
+    const counts = getModelCountsForDate(
+      { '2026-05-16': 5 },
+      { '2026-05-16': { 'gpt-4o': 2 } },
+      '2026-05-16'
+    );
+
+    assert.deepEqual(counts, { 'gpt-4o': 2, unknown: 3 });
   });
 });

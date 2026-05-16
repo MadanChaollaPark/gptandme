@@ -4,6 +4,7 @@
 const {
   estimateCost,
   getMonthTotal,
+  getModelCountsForDate,
   getSessionStats,
   getStreak,
   getWeekTotal,
@@ -25,7 +26,8 @@ document.addEventListener('DOMContentLoaded', () => {
     chrome.storage.local.get(
       { byDate: {}, byModel: {}, byHour: {}, sessions: {}, total: 0 },
       (data) => {
-      const today = data.byDate[todayKey()] || 0;
+      const todayDate = todayKey();
+      const today = data.byDate[todayDate] || 0;
       const total = data.total || 0;
       document.getElementById('today').textContent = today;
       document.getElementById('week').textContent = getWeekTotal(data.byDate);
@@ -34,7 +36,7 @@ document.addEventListener('DOMContentLoaded', () => {
       document.getElementById('total').textContent = total;
 
       // Model breakdown (today)
-      const todayModels = data.byModel[todayKey()] || {};
+      const todayModels = getModelCountsForDate(data.byDate, data.byModel, todayDate);
       const sessionStats = getSessionStats(data.sessions);
       const modelSection = document.getElementById('modelSection');
       const modelDiv = document.getElementById('modelBreakdown');
@@ -111,8 +113,8 @@ document.addEventListener('DOMContentLoaded', () => {
       const rows = ['date,model,count'];
       const dates = [...new Set([...Object.keys(data.byDate), ...Object.keys(data.byModel)])].sort();
       for (const date of dates) {
-        const models = data.byModel[date];
-        if (models && Object.keys(models).length) {
+        const models = getModelCountsForDate(data.byDate, data.byModel, date);
+        if (Object.keys(models).length) {
           for (const [model, count] of Object.entries(models).sort()) {
             rows.push(`${date},${csvEscape(model)},${count}`);
           }

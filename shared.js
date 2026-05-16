@@ -130,6 +130,23 @@
     }, 0);
   }
 
+  function getModelCountsForDate(byDate = {}, byModel = {}, key = todayKey()) {
+    const modelCounts = byModel[key] || {};
+    const normalized = Object.fromEntries(
+      Object.entries(modelCounts).map(([model, count]) => [model, Number(count || 0)])
+    );
+
+    const dayTotal = Number(byDate[key] || 0);
+    const modelTotal = Object.values(normalized).reduce((sum, count) => sum + count, 0);
+    const unassigned = dayTotal - modelTotal;
+
+    if (unassigned > 0) {
+      normalized.unknown = (normalized.unknown || 0) + unassigned;
+    }
+
+    return normalized;
+  }
+
   function getRecentDays(byDate = {}, days = 7, now = new Date()) {
     const values = [];
     for (let offset = days - 1; offset >= 0; offset -= 1) {
@@ -227,6 +244,7 @@
     estimateCost,
     getHeatmapColor,
     getMonthTotal,
+    getModelCountsForDate,
     getRecentDays,
     getSessionStats,
     getStreak,
