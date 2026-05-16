@@ -72,11 +72,57 @@ function inComposer(el) {
   return false;
 }
 
+function composerRoot(el) {
+  if (!el || !(el instanceof Element)) return null;
+  const root = el.closest('form') || el.closest('[data-testid*="composer"], [data-qa*="composer"]');
+  if (root) return root;
+  const input = el.closest('textarea, [contenteditable="true"]');
+  return input?.parentElement || input;
+}
+
+function attrIncludes(el, attr, terms) {
+  const value = el.getAttribute?.(attr)?.toLowerCase() || '';
+  return terms.some((term) => value.includes(term));
+}
+
+function isDisabledControl(el) {
+  if (!el || !(el instanceof Element)) return true;
+  if ('disabled' in el && el.disabled) return true;
+  return (
+    el.matches?.(':disabled') ||
+    el.getAttribute('aria-disabled') === 'true' ||
+    el.getAttribute('data-disabled') === 'true'
+  );
+}
+
+function isBusyControl(el) {
+  if (!el || !(el instanceof Element)) return false;
+  const busyTerms = ['stop', 'cancel', 'interrupt', 'abort'];
+  return attrIncludes(el, 'data-testid', busyTerms) || attrIncludes(el, 'aria-label', busyTerms);
+}
+
+function hasBusyControl(root) {
+  return [...root.querySelectorAll('button, [role="button"], [data-testid], [aria-label]')]
+    .some(isBusyControl);
+}
+
+function activeSendButton(root) {
+  const selector = siteConfig.sendButtons.join(', ');
+  if (!selector) return null;
+  return [...root.querySelectorAll(selector)].find((button) => !isDisabledControl(button)) || null;
+}
+
+function canSendFrom(el) {
+  const root = composerRoot(el);
+  if (!root || hasBusyControl(root)) return false;
+  return Boolean(activeSendButton(root));
+}
+
 // capture so React can't swallow events before us
-document.addEventListener('submit', (e) => { if (inComposer(e.target)) tick(); }, true);
-document.addEventListener('keydown', (e) => { if (inComposer(e.target) && shouldCountKey(e)) tick(); }, true);
+document.addEventListener('submit', (e) => { if (inComposer(e.target) && canSendFrom(e.target)) tick(); }, true);
+document.addEventListener('keydown', (e) => { if (inComposer(e.target) && shouldCountKey(e) && canSendFrom(e.target)) tick(); }, true);
 document.addEventListener('click', (e) => {
   const selector = siteConfig.sendButtons.join(', ');
   const btn = selector && (e.target instanceof Element) && e.target.closest(selector);
-  if (btn && inComposer(btn)) tick();
+  if (btn && inComposer(btn) && !isDisabledControl(btn) && canSendFrom(btn)) tick();
 }, true);
