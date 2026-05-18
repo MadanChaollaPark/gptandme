@@ -2,6 +2,8 @@ importScripts('shared.js');
 
 const { hourKey, isUserSendPayload, todayKey } = GptAndMeShared;
 const DEDUPE_MS = 700;
+const BADGE_BACKGROUND_COLOR = '#d1242f';
+const BADGE_TEXT_COLOR = '#ffffff';
 let lastIncrement = { key: null, at: 0 };
 
 async function getCounts() {
@@ -17,6 +19,12 @@ async function setCounts(data) {
   return new Promise(resolve => {
     chrome.storage.local.set(data, resolve);
   });
+}
+
+function setBadgeCount(count) {
+  chrome.action.setBadgeBackgroundColor({ color: BADGE_BACKGROUND_COLOR });
+  chrome.action.setBadgeTextColor?.({ color: BADGE_TEXT_COLOR });
+  chrome.action.setBadgeText({ text: String(count || 0) });
 }
 
 function shouldDedupe(site, sessionId) {
@@ -52,19 +60,17 @@ async function increment(model = 'unknown', site = 'unknown', sessionId = 'defau
 
   const newTotal = (total || 0) + 1;
   await setCounts({ byDate, byModel, byHour, sessions, total: newTotal });
-  chrome.action.setBadgeText({ text: String(byDate[day]) });
+  setBadgeCount(byDate[day]);
 }
 
 // Initialize badge on install/activate
 chrome.runtime.onInstalled.addListener(async () => {
   const { byDate } = await getCounts();
-  chrome.action.setBadgeBackgroundColor({ color: "#444" });
-  chrome.action.setBadgeText({ text: String(byDate[todayKey()] || 0) });
+  setBadgeCount(byDate[todayKey()]);
 });
 chrome.runtime.onStartup.addListener(async () => {
   const { byDate } = await getCounts();
-  chrome.action.setBadgeBackgroundColor({ color: "#444" });
-  chrome.action.setBadgeText({ text: String(byDate[todayKey()] || 0) });
+  setBadgeCount(byDate[todayKey()]);
 });
 
 function parseJsonFromRequestBody(details) {
@@ -115,5 +121,5 @@ chrome.webRequest.onBeforeRequest.addListener(
 // Keep badge in sync if date flips while browser is open
 setInterval(async () => {
   const { byDate } = await getCounts();
-  chrome.action.setBadgeText({ text: String(byDate[todayKey()] || 0) });
+  setBadgeCount(byDate[todayKey()]);
 }, 60 * 1000);
