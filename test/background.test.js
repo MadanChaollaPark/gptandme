@@ -1,6 +1,6 @@
 const { describe, it } = require('node:test');
 const assert = require('node:assert/strict');
-const { todayKey, isUserSendPayload } = require('./helpers');
+const { todayKey, isChatGptPromptEndpoint, isUserSendPayload } = require('./helpers');
 
 describe('todayKey', () => {
   it('returns yyyy-mm-dd format', () => {
@@ -77,6 +77,55 @@ describe('isUserSendPayload', () => {
     }), true);
   });
 
+  it('detects user message with object parts content', () => {
+    assert.equal(isUserSendPayload({
+      action: 'next',
+      messages: [{
+        role: 'user',
+        content: {
+          parts: [{ content_type: 'text', text: 'hello world' }],
+        },
+      }],
+    }), true);
+  });
+
+  it('detects singular message payloads', () => {
+    assert.equal(isUserSendPayload({
+      action: 'next',
+      message: {
+        author: { role: 'user' },
+        content: { parts: ['hello'] },
+      },
+    }), true);
+  });
+
+  it('detects responses-style input strings', () => {
+    assert.equal(isUserSendPayload({
+      input: 'hello world',
+    }), true);
+  });
+
+  it('detects responses-style user input arrays', () => {
+    assert.equal(isUserSendPayload({
+      input: [{
+        role: 'user',
+        content: [{ type: 'input_text', text: 'hello world' }],
+      }],
+    }), true);
+  });
+
+  it('detects attachment-only user messages', () => {
+    assert.equal(isUserSendPayload({
+      action: 'next',
+      messages: [{
+        author: { role: 'user' },
+        content: {
+          parts: [{ type: 'input_file', file_id: 'file-123' }],
+        },
+      }],
+    }), true);
+  });
+
   it('rejects empty string content', () => {
     assert.equal(isUserSendPayload({
       action: 'next',
@@ -95,5 +144,51 @@ describe('isUserSendPayload', () => {
     assert.equal(isUserSendPayload({
       messages: [{ role: 'user', content: 'hello' }],
     }), true);
+  });
+
+  it('rejects responses-style assistant input arrays', () => {
+    assert.equal(isUserSendPayload({
+      input: [{
+        role: 'assistant',
+        content: [{ type: 'output_text', text: 'hello world' }],
+      }],
+    }), false);
+  });
+});
+
+describe('isChatGptPromptEndpoint', () => {
+  it('detects legacy conversation endpoints', () => {
+    assert.equal(
+      isChatGptPromptEndpoint('https://chatgpt.com/backend-api/conversation'),
+      true
+    );
+  });
+
+  it('detects prefixed conversation endpoints', () => {
+    assert.equal(
+      isChatGptPromptEndpoint('https://chatgpt.com/backend-api/f/conversation'),
+      true
+    );
+  });
+
+  it('detects responses endpoints', () => {
+    assert.equal(
+      isChatGptPromptEndpoint('https://chatgpt.com/backend-api/responses'),
+      true
+    );
+  });
+
+  it('rejects conversation list endpoints', () => {
+    assert.equal(
+      isChatGptPromptEndpoint('https://chatgpt.com/backend-api/conversations'),
+      false
+    );
+  });
+
+  it('rejects non-backend endpoints', () => {
+    assert.equal(
+      isChatGptPromptEndpoint('https://chatgpt.com/api/conversation'),
+      false
+    );
   });
 });

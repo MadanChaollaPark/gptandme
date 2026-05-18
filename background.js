@@ -1,7 +1,7 @@
 importScripts('shared.js');
 
-const { hourKey, isUserSendPayload, todayKey } = GptAndMeShared;
-const DEDUPE_MS = 700;
+const { hourKey, isChatGptPromptEndpoint, isUserSendPayload, todayKey } = GptAndMeShared;
+const DEDUPE_MS = 2000;
 const BADGE_BACKGROUND_COLOR = '#d1242f';
 const BADGE_TEXT_COLOR = '#ffffff';
 let lastIncrement = { key: null, at: 0 };
@@ -27,9 +27,9 @@ function setBadgeCount(count) {
   chrome.action.setBadgeText({ text: String(count || 0) });
 }
 
-function shouldDedupe(site, sessionId) {
+function shouldDedupe(site, sessionId, dedupeKey = sessionId) {
   const now = Date.now();
-  const key = `${site || 'unknown'}:${sessionId || 'unknown'}`;
+  const key = `${site || 'unknown'}:${dedupeKey || sessionId || 'unknown'}`;
   if (lastIncrement.key === key && now - lastIncrement.at < DEDUPE_MS) {
     return true;
   }
@@ -37,8 +37,8 @@ function shouldDedupe(site, sessionId) {
   return false;
 }
 
-async function increment(model = 'unknown', site = 'unknown', sessionId = 'default') {
-  if (shouldDedupe(site, sessionId)) return;
+async function increment(model = 'unknown', site = 'unknown', sessionId = 'default', dedupeKey = sessionId) {
+  if (shouldDedupe(site, sessionId, dedupeKey)) return;
 
   const { byDate, byModel, byHour, sessions, total } = await getCounts();
   const day = todayKey();
@@ -97,21 +97,30 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === "tick") {
     const site = message.site || sender.tab?.url || 'unknown';
     const sessionId = message.sessionId || `tab-${sender.tab?.id ?? 'unknown'}`;
-    increment(message.model || 'unknown', site, sessionId);
+    const dedupeKey = `tab-${sender.tab?.id ?? sessionId}`;
+    increment(message.model || 'unknown', site, sessionId, dedupeKey);
   }
 });
 
 // Observe outgoing requests to the ChatGPT web backend (backup method)
 const urlFilters = [
   "*://chat.openai.com/backend-api/conversation*",
-  "*://chatgpt.com/backend-api/conversation*"
+  "*://chat.openai.com/backend-api/*/conversation*",
+  "*://chat.openai.com/backend-api/responses*",
+  "*://chat.openai.com/backend-api/*/responses*",
+  "*://chatgpt.com/backend-api/conversation*",
+  "*://chatgpt.com/backend-api/*/conversation*",
+  "*://chatgpt.com/backend-api/responses*",
+  "*://chatgpt.com/backend-api/*/responses*"
 ];
 
 chrome.webRequest.onBeforeRequest.addListener(
   (details) => {
+    if (!isChatGptPromptEndpoint(details.url)) return;
     const payload = parseJsonFromRequestBody(details);
     if (isUserSendPayload(payload)) {
-      increment(payload.model || 'unknown', siteFromUrl(details.url), `tab-${details.tabId}`);
+      const sessionId = `tab-${details.tabId}`;
+      increment(payload.model || 'unknown', siteFromUrl(details.url), sessionId, sessionId);
     }
   },
   { urls: urlFilters },

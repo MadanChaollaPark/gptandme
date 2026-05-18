@@ -32,11 +32,13 @@
     'chatgpt.com': {
       sendButtons: CHATGPT_SEND_BUTTONS,
       countViaNetwork: true,
+      domFallback: true,
       hosts: ['chatgpt.com'],
     },
     'chat.openai.com': {
       sendButtons: CHATGPT_SEND_BUTTONS,
       countViaNetwork: true,
+      domFallback: true,
       hosts: ['chat.openai.com'],
     },
     'claude.ai': {
@@ -86,36 +88,96 @@
     return date;
   }
 
+  function textHasValue(value) {
+    return typeof value === 'string' && value.trim().length > 0;
+  }
+
+  function partHasUserInput(part) {
+    if (textHasValue(part)) return true;
+    if (!part || typeof part !== 'object') return false;
+
+    if (textHasValue(part.text) || textHasValue(part.input_text)) return true;
+    if (part.type === 'input_text' && textHasValue(part.text)) return true;
+
+    const attachmentTypes = new Set([
+      'file',
+      'image',
+      'input_file',
+      'input_image',
+    ]);
+    if (attachmentTypes.has(part.type)) return true;
+    if (part.asset_pointer || part.file_id || part.upload_id || part.image_url) return true;
+
+    if ('content' in part) return contentHasUserInput(part.content);
+    if (Array.isArray(part.parts)) return part.parts.some(partHasUserInput);
+
+    return false;
+  }
+
+  function contentHasUserInput(content) {
+    if (textHasValue(content)) return true;
+    if (Array.isArray(content)) return content.some(partHasUserInput);
+    if (!content || typeof content !== 'object') return false;
+
+    if (textHasValue(content.text) || textHasValue(content.input_text)) return true;
+    if (Array.isArray(content.parts)) return content.parts.some(partHasUserInput);
+    if (Array.isArray(content.content)) return content.content.some(partHasUserInput);
+    if ('content' in content) return contentHasUserInput(content.content);
+
+    return partHasUserInput(content);
+  }
+
+  function messageHasUserInput(message) {
+    if (!message || typeof message !== 'object') return false;
+    const role = message.author?.role || message.role;
+    if (role !== 'user') return false;
+
+    if ('content' in message) return contentHasUserInput(message.content);
+    if (Array.isArray(message.parts)) return message.parts.some(partHasUserInput);
+
+    return false;
+  }
+
+  function inputHasUserInput(input) {
+    if (textHasValue(input)) return true;
+    if (Array.isArray(input)) {
+      return input.some((item) => {
+        if (textHasValue(item)) return true;
+        if (item?.role || item?.author?.role) return messageHasUserInput(item);
+        return partHasUserInput(item);
+      });
+    }
+    if (!input || typeof input !== 'object') return false;
+    if (input.role || input.author?.role) return messageHasUserInput(input);
+    return partHasUserInput(input);
+  }
+
   function isUserSendPayload(payload) {
     if (!payload) return false;
     if (payload.action && payload.action !== 'next') return false;
 
-    const messages = payload.messages;
-    if (!Array.isArray(messages)) return false;
+    const messages = Array.isArray(payload.messages)
+      ? payload.messages
+      : payload.message
+        ? [payload.message]
+        : [];
 
-    return messages.some((message) => {
-      const role = message?.author?.role || message?.role;
-      if (role !== 'user') return false;
+    if (messages.some(messageHasUserInput)) return true;
+    if ('input' in payload) return inputHasUserInput(payload.input);
 
-      const content = message?.content;
-      if (typeof content === 'string') return content.trim().length > 0;
+    return false;
+  }
 
-      if (Array.isArray(content)) {
-        return content.some((part) => {
-          if (typeof part === 'string') return part.trim().length > 0;
-          if (part?.type === 'input_text' && typeof part?.text === 'string') {
-            return part.text.trim().length > 0;
-          }
-          return false;
-        });
-      }
-
-      if (Array.isArray(content?.parts)) {
-        return content.parts.some((part) => typeof part === 'string' && part.trim().length > 0);
-      }
-
+  function isChatGptPromptEndpoint(url) {
+    try {
+      const pathSegments = new URL(url).pathname.split('/').filter(Boolean);
+      const backendIndex = pathSegments.indexOf('backend-api');
+      if (backendIndex === -1) return false;
+      const backendSegments = pathSegments.slice(backendIndex + 1);
+      return backendSegments.includes('conversation') || backendSegments.includes('responses');
+    } catch (_) {
       return false;
-    });
+    }
   }
 
   function shouldCountKey(event) {
@@ -252,6 +314,7 @@
     getStreak,
     getWeekTotal,
     hourKey,
+    isChatGptPromptEndpoint,
     isUserSendPayload,
     shouldCountKey,
     todayKey,
