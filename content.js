@@ -5,11 +5,11 @@ const siteEntry = Object.entries(SITES).find(([, config]) =>
   (config.hosts || []).includes(location.hostname)
 ) || [location.hostname, { sendButtons: [] }];
 const [siteName, siteConfig] = siteEntry;
-const countDomEvents = !siteConfig.countViaNetwork;
+const countDomEvents = !siteConfig.countViaNetwork || siteConfig.domFallback;
 
 // ---------- MODEL DETECTION ----------
 
-// Best signal: intercept fetch to /backend-api/conversation (ChatGPT).
+// Best signal: intercept ChatGPT fetches to learn the model from the request.
 // inject.js runs in the page context and dispatches a custom event with the
 // model slug read straight from the request body.
 if (siteName === 'chatgpt.com' || siteName === 'chat.openai.com') {

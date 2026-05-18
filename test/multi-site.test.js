@@ -48,6 +48,11 @@ describe('SITES config', () => {
     assert.equal(SITES['chat.openai.com'].countViaNetwork, true);
   });
 
+  it('keeps a DOM fallback enabled for ChatGPT UI sends', () => {
+    assert.equal(SITES['chatgpt.com'].domFallback, true);
+    assert.equal(SITES['chat.openai.com'].domFallback, true);
+  });
+
   it('keeps DOM counting enabled for sites without network payload detection', () => {
     assert.equal(Boolean(SITES['claude.ai'].countViaNetwork), false);
     assert.equal(Boolean(SITES['gemini.google.com'].countViaNetwork), false);
