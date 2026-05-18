@@ -31,10 +31,12 @@
   const SITES = {
     'chatgpt.com': {
       sendButtons: CHATGPT_SEND_BUTTONS,
+      countViaNetwork: true,
       hosts: ['chatgpt.com'],
     },
     'chat.openai.com': {
       sendButtons: CHATGPT_SEND_BUTTONS,
+      countViaNetwork: true,
       hosts: ['chat.openai.com'],
     },
     'claude.ai': {

@@ -5,6 +5,7 @@ const siteEntry = Object.entries(SITES).find(([, config]) =>
   (config.hosts || []).includes(location.hostname)
 ) || [location.hostname, { sendButtons: [] }];
 const [siteName, siteConfig] = siteEntry;
+const countDomEvents = !siteConfig.countViaNetwork;
 
 // ---------- MODEL DETECTION ----------
 
@@ -119,10 +120,12 @@ function canSendFrom(el) {
 }
 
 // capture so React can't swallow events before us
-document.addEventListener('submit', (e) => { if (inComposer(e.target) && canSendFrom(e.target)) tick(); }, true);
-document.addEventListener('keydown', (e) => { if (inComposer(e.target) && shouldCountKey(e) && canSendFrom(e.target)) tick(); }, true);
-document.addEventListener('click', (e) => {
-  const selector = siteConfig.sendButtons.join(', ');
-  const btn = selector && (e.target instanceof Element) && e.target.closest(selector);
-  if (btn && inComposer(btn) && !isDisabledControl(btn) && canSendFrom(btn)) tick();
-}, true);
+if (countDomEvents) {
+  document.addEventListener('submit', (e) => { if (inComposer(e.target) && canSendFrom(e.target)) tick(); }, true);
+  document.addEventListener('keydown', (e) => { if (inComposer(e.target) && shouldCountKey(e) && canSendFrom(e.target)) tick(); }, true);
+  document.addEventListener('click', (e) => {
+    const selector = siteConfig.sendButtons.join(', ');
+    const btn = selector && (e.target instanceof Element) && e.target.closest(selector);
+    if (btn && inComposer(btn) && !isDisabledControl(btn) && canSendFrom(btn)) tick();
+  }, true);
+}

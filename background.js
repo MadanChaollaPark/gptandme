@@ -78,6 +78,14 @@ function parseJsonFromRequestBody(details) {
   }
 }
 
+function siteFromUrl(url) {
+  try {
+    return new URL(url).hostname;
+  } catch (_) {
+    return 'chatgpt.com';
+  }
+}
+
 // Listen for tick messages from content script
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === "tick") {
@@ -97,7 +105,7 @@ chrome.webRequest.onBeforeRequest.addListener(
   (details) => {
     const payload = parseJsonFromRequestBody(details);
     if (isUserSendPayload(payload)) {
-      increment(payload.model || 'unknown', 'chatgpt.com', `tab-${details.tabId}`);
+      increment(payload.model || 'unknown', siteFromUrl(details.url), `tab-${details.tabId}`);
     }
   },
   { urls: urlFilters },
