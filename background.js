@@ -223,10 +223,36 @@ async function incrementNow(
   setBadgeCount(byDate[day]);
 }
 
-// Initialize badge on install/activate
-chrome.runtime.onInstalled.addListener(async () => {
+function increment(...args) {
+  incrementQueue = incrementQueue.then(
+    () => incrementNow(...args),
+    () => incrementNow(...args)
+  );
+  return incrementQueue;
+}
+
+async function refreshBadgeFromStorage() {
   const { byDate } = await getCounts();
   setBadgeCount(byDate[todayKey()]);
+}
+
+function scheduleBadgeRefresh() {
+  chrome.alarms?.create?.(BADGE_REFRESH_ALARM, { periodInMinutes: 60 });
+}
+
+function ensureDefaultSettings() {
+  chrome.storage.local.get({ showPageCounter: null }, (data) => {
+    const updates = { extensionVersion: extensionVersion() };
+    if (data.showPageCounter === null) updates.showPageCounter = true;
+    chrome.storage.local.set(updates);
+  });
+}
+
+// Initialize badge on install/activate
+chrome.runtime.onInstalled.addListener(async () => {
+  ensureDefaultSettings();
+  scheduleBadgeRefresh();
+  await refreshBadgeFromStorage();
 });
 chrome.runtime.onStartup.addListener(async () => {
   const { byDate } = await getCounts();
