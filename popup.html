@@ -4,15 +4,67 @@
     <meta charset="utf-8" />
     <title>Query Counter</title>
     <style>
-      body { font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial; margin: 14px; width: 225px; }
-      h1 { font-size: 14px; margin: 0 0 10px; }
-      .row { display: flex; justify-content: space-between; gap: 12px; margin: 8px 0; }
-      button { padding: 6px 10px; border-radius: 8px; border: 1px solid #ddd; background: #f5f5f5; cursor: pointer; }
-      button:hover { background: #eee; }
-      code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
-      .muted { color: #666; font-size: 12px; margin-top: 10px; }
-      .section-title { font-size: 12px; color: #666; margin: 12px 0 4px; font-weight: 600; }
+      body {
+        color: #172026;
+        font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial;
+        margin: 14px;
+        width: 286px;
+      }
+      h1 { font-size: 14px; margin: 0; }
+      a { color: inherit; }
+      .header { align-items: center; display: flex; justify-content: space-between; margin-bottom: 10px; }
+      .pill {
+        background: #eef7f1;
+        border: 1px solid #cfe9d8;
+        border-radius: 999px;
+        color: #166534;
+        font-size: 11px;
+        font-weight: 700;
+        padding: 3px 7px;
+      }
+      .row { align-items: center; display: flex; justify-content: space-between; gap: 12px; margin: 7px 0; }
       .value { flex-shrink: 0; font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
+      .section-title { color: #5f6b76; font-size: 12px; font-weight: 700; margin: 12px 0 5px; }
+      .muted { color: #67717c; font-size: 12px; line-height: 1.35; margin-top: 8px; }
+      .setting { align-items: center; display: flex; gap: 8px; margin: 8px 0; }
+      .setting input { margin: 0; }
+      button {
+        background: #f6f8fa;
+        border: 1px solid #d8dee4;
+        border-radius: 7px;
+        color: #172026;
+        cursor: pointer;
+        font: inherit;
+        font-size: 12px;
+        padding: 6px 8px;
+      }
+      button:hover { background: #eef1f4; }
+      .button-row { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 10px; }
+      .danger { color: #9f1239; }
+      .sparkline {
+        align-items: end;
+        border-bottom: 1px solid #d8dee4;
+        display: grid;
+        gap: 3px;
+        grid-template-columns: repeat(7, 1fr);
+        height: 34px;
+        margin: 6px 0 3px;
+      }
+      .bar {
+        background: #2563eb;
+        border-radius: 3px 3px 0 0;
+        min-height: 2px;
+      }
+      .models .row { margin: 5px 0; }
+      .status-grid {
+        background: #f6f8fa;
+        border: 1px solid #d8dee4;
+        border-radius: 7px;
+        padding: 7px 8px;
+      }
+      .status-grid .row { margin: 4px 0; }
+      .status-grid .label { color: #5f6b76; }
+      #importCsvInput { display: none; }
     </style>
   </head>
   <body>
