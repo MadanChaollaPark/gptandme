@@ -92,10 +92,105 @@ function siteForDiagnostics(site) {
   }
 }
 
-async function increment(model = 'unknown', site = 'unknown', sessionId = 'default', dedupeKey = sessionId) {
-  if (shouldDedupe(site, sessionId, dedupeKey)) return;
+function extensionVersion() {
+  try {
+    return chrome.runtime.getManifest?.().version || null;
+  } catch (_) {
+    return null;
+  }
+}
 
-  const { byDate, byModel, byHour, sessions, total } = await getCounts();
+function normalizeStoredData(data = {}) {
+  const byDate = cloneObject(data.byDate);
+
+  return {
+    byDate,
+    byModel: cloneObject(data.byModel),
+    byHour: cloneObject(data.byHour),
+    sessions: cloneObject(data.sessions),
+    total: sumCounts(byDate),
+    storageSchemaVersion: STORAGE_SCHEMA_VERSION,
+    lastCountedAt: data.lastCountedAt || null,
+    lastCountReason: data.lastCountReason || null,
+    lastCountSite: data.lastCountSite || null,
+    lastCountModel: data.lastCountModel || null,
+    lastCountSessionId: data.lastCountSessionId || null,
+    extensionVersion: data.extensionVersion || extensionVersion(),
+    showPageCounter: data.showPageCounter !== false,
+    lastIncrementKey: data.lastIncrementKey || null,
+    lastIncrementAt: Number(data.lastIncrementAt || 0),
+  };
+}
+
+function countDiagnostics({ countedAt, reason, site, model, sessionId }) {
+  return {
+    storageSchemaVersion: STORAGE_SCHEMA_VERSION,
+    lastCountedAt: countedAt,
+    lastCountReason: safeString(reason),
+    lastCountSite: siteForDiagnostics(site),
+    lastCountModel: safeString(model),
+    lastCountSessionId: safeString(sessionId),
+    extensionVersion: extensionVersion(),
+  };
+}
+
+function buildStatus(data) {
+  return normalizeStoredData({
+    ...data,
+    extensionVersion: data.extensionVersion || extensionVersion(),
+  });
+}
+
+function buildExportPayload(data, exportedAt = new Date().toISOString()) {
+  return {
+    schemaVersion: EXPORT_SCHEMA_VERSION,
+    storageSchemaVersion: STORAGE_SCHEMA_VERSION,
+    exportedAt,
+    extensionVersion: extensionVersion(),
+    data: buildStatus(data),
+  };
+}
+
+async function importData(payload) {
+  const source = isObject(payload?.data) ? payload.data : payload;
+  const data = normalizeStoredData({
+    ...source,
+    extensionVersion: extensionVersion() || source?.extensionVersion,
+  });
+  await setCounts(data);
+  setBadgeCount(data.byDate[todayKey()]);
+  return {
+    total: data.total,
+    storageSchemaVersion: data.storageSchemaVersion,
+  };
+}
+
+function canManageStoredData(sender = {}) {
+  return !sender?.tab;
+}
+
+function sendAsyncResponse(sendResponse, promise) {
+  promise
+    .then(response => sendResponse(response))
+    .catch(error => {
+      sendResponse({ ok: false, error: error?.message || String(error) });
+    });
+  return true;
+}
+
+async function incrementNow(
+  model = 'unknown',
+  site = 'unknown',
+  sessionId = 'default',
+  dedupeKey = sessionId,
+  reason = 'unknown'
+) {
+  const dedupe = dedupeRecord(site, sessionId, dedupeKey);
+  const data = await getCounts();
+  if (shouldDedupeRecord(dedupe, data.lastIncrementKey, data.lastIncrementAt)) return;
+  rememberDedupeRecord(dedupe);
+
+  const { byDate, byModel, byHour, sessions, total } = data;
   const day = todayKey();
   const hour = hourKey();
 
