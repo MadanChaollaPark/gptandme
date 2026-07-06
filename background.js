@@ -193,6 +193,7 @@ async function incrementNow(
   const { byDate, byModel, byHour, sessions, total } = data;
   const day = todayKey();
   const hour = hourKey();
+  const countedAt = new Date().toISOString();
 
   byDate[day] = (byDate[day] || 0) + 1;
   byHour[hour] = (byHour[hour] || 0) + 1;
@@ -201,7 +202,7 @@ async function incrementNow(
   byModel[day][model] = (byModel[day][model] || 0) + 1;
 
   if (!sessions[sessionId]) {
-    sessions[sessionId] = { prompts: 0, site, startedAt: new Date().toISOString() };
+    sessions[sessionId] = { prompts: 0, site, startedAt: countedAt };
   }
   sessions[sessionId].prompts = (sessions[sessionId].prompts || 0) + 1;
   sessions[sessionId].site = site;
