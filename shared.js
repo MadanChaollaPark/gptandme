@@ -74,6 +74,19 @@
     return `${dateKey(date)}-${String(date.getHours()).padStart(2, '0')}`;
   }
 
+  function siteConfigForHost(hostname = '') {
+    const normalized = String(hostname || '').toLowerCase();
+    const entry = Object.entries(SITES).find(([, config]) =>
+      (config.hosts || []).includes(normalized)
+    );
+    if (!entry) return null;
+    return { name: entry[0], config: entry[1] };
+  }
+
+  function isSupportedHost(hostname = '') {
+    return Boolean(siteConfigForHost(hostname));
+  }
+
   function parseDateKey(key) {
     const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(key);
     if (!match) return null;
@@ -221,6 +234,16 @@
       const date = new Date(now);
       date.setDate(now.getDate() - offset);
       values.push(byDate[dateKey(date)] || 0);
+    }
+    return values;
+  }
+
+  function getRecentHours(byHour = {}, hours = 24, now = new Date()) {
+    const values = [];
+    for (let offset = hours - 1; offset >= 0; offset -= 1) {
+      const date = new Date(now);
+      date.setHours(now.getHours() - offset, 0, 0, 0);
+      values.push(byHour[hourKey(date)] || 0);
     }
     return values;
   }
