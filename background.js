@@ -255,8 +255,18 @@ chrome.runtime.onInstalled.addListener(async () => {
   await refreshBadgeFromStorage();
 });
 chrome.runtime.onStartup.addListener(async () => {
-  const { byDate } = await getCounts();
-  setBadgeCount(byDate[todayKey()]);
+  chrome.storage.local.set({ extensionVersion: extensionVersion() });
+  scheduleBadgeRefresh();
+  await refreshBadgeFromStorage();
+});
+
+chrome.alarms?.onAlarm?.addListener?.((alarm) => {
+  if (alarm.name === BADGE_REFRESH_ALARM) refreshBadgeFromStorage();
+});
+
+chrome.storage.onChanged.addListener((changes, namespace) => {
+  if (namespace !== 'local' || !changes.byDate) return;
+  setBadgeCount((changes.byDate.newValue || {})[todayKey()]);
 });
 
 function parseJsonFromRequestBody(details) {
@@ -280,6 +290,8 @@ function siteFromUrl(url) {
 
 // Listen for tick messages from content script
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (!message || typeof message !== 'object') return;
+
   if (message.type === "tick") {
     const site = message.site || sender.tab?.url || 'unknown';
     const sessionId = message.sessionId || `tab-${sender.tab?.id ?? 'unknown'}`;
