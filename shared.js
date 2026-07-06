@@ -462,6 +462,7 @@
     getWeekTotal,
     hourKey,
     isChatGptPromptEndpoint,
+    isSupportedHost,
     isUserSendPayload,
     shouldCountKey,
     todayKey,
