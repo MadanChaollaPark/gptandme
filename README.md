@@ -1,8 +1,8 @@
 # GPTandme
 
-Chrome extension that tracks prompts sent from supported AI chat sites and stores the counts locally in the browser.
+GPTandme is a Manifest V3 browser extension that counts prompts sent from supported AI chat sites and stores the counts locally in the browser.
 
-## Features
+## v1.2 Surfaces
 
 - Daily, weekly, monthly, and all-time prompt counts
 - Per-model breakdown when the site exposes the model
