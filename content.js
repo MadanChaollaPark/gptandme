@@ -1,9 +1,10 @@
 // content.js - counts sends and detects model/site context.
 
-const { SITES, shouldCountKey } = GptAndMeShared;
-const siteEntry = Object.entries(SITES).find(([, config]) =>
+const { SITES, shouldCountKey, todayKey } = GptAndMeShared;
+const matchedSiteEntry = Object.entries(SITES).find(([, config]) =>
   (config.hosts || []).includes(location.hostname)
-) || [location.hostname, { sendButtons: [] }];
+);
+const siteEntry = matchedSiteEntry || [location.hostname, { sendButtons: [] }];
 const [siteName, siteConfig] = siteEntry;
 const countDomEvents = !siteConfig.countViaNetwork || siteConfig.domFallback;
 
