@@ -1,7 +1,11 @@
-
 // popup.js
 
+const shared = typeof GptAndMeShared !== 'undefined'
+  ? GptAndMeShared
+  : (typeof module !== 'undefined' && module.exports ? require('./shared') : {});
+
 const {
+  buildUsageCsv,
   estimateCost,
   getMonthTotal,
   getModelCountsForDate,
