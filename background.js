@@ -29,10 +29,9 @@ let incrementQueue = Promise.resolve();
 
 async function getCounts() {
   return new Promise(resolve => {
-    chrome.storage.local.get(
-      { byDate: {}, byModel: {}, byHour: {}, sessions: {}, total: 0 },
-      resolve
-    );
+    chrome.storage.local.get(STORAGE_DEFAULTS, data => {
+      resolve(normalizeStoredData(data));
+    });
   });
 }
 
@@ -48,7 +47,7 @@ function setBadgeCount(count) {
   chrome.action.setBadgeText({ text: String(count || 0) });
 }
 
-function shouldDedupe(site, sessionId, dedupeKey = sessionId) {
+function dedupeRecord(site, sessionId, dedupeKey = sessionId) {
   const now = Date.now();
   const key = `${site || 'unknown'}:${dedupeKey || sessionId || 'unknown'}`;
   if (lastIncrement.key === key && now - lastIncrement.at < DEDUPE_MS) {
