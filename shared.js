@@ -464,6 +464,8 @@
     isChatGptPromptEndpoint,
     isSupportedHost,
     isUserSendPayload,
+    mergeUsageData,
+    parseUsageCsv,
     shouldCountKey,
     todayKey,
   };
