@@ -5,7 +5,27 @@ const DEDUPE_MS = 2000;
 const BADGE_REFRESH_ALARM = 'gptandme-refresh-badge';
 const BADGE_BACKGROUND_COLOR = '#d1242f';
 const BADGE_TEXT_COLOR = '#ffffff';
+const STORAGE_SCHEMA_VERSION = 1;
+const EXPORT_SCHEMA_VERSION = 1;
+const STORAGE_DEFAULTS = {
+  byDate: {},
+  byModel: {},
+  byHour: {},
+  sessions: {},
+  total: 0,
+  storageSchemaVersion: STORAGE_SCHEMA_VERSION,
+  lastCountedAt: null,
+  lastCountReason: null,
+  lastCountSite: null,
+  lastCountModel: null,
+  lastCountSessionId: null,
+  extensionVersion: null,
+  showPageCounter: true,
+  lastIncrementKey: null,
+  lastIncrementAt: 0,
+};
 let lastIncrement = { key: null, at: 0 };
+let incrementQueue = Promise.resolve();
 
 async function getCounts() {
   return new Promise(resolve => {
