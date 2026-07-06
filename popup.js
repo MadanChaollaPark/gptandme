@@ -20,61 +20,172 @@ const {
   siteConfigForHost,
   sumCounts,
   todayKey,
-} = GptAndMeShared;
+} = shared;
+
+const STORAGE_DEFAULTS = {
+  byDate: {},
+  byModel: {},
+  byHour: {},
+  sessions: {},
+  total: 0,
+  showPageCounter: true,
+  lastCountedAt: null,
+  lastCountReason: null,
+  lastCountSite: null,
+  lastCountModel: null,
+  lastCountSessionId: null,
+  extensionVersion: null,
+  storageSchemaVersion: null,
+  lastIncrementKey: null,
+  lastIncrementAt: 0,
+};
+
+const CLEARED_DIAGNOSTICS = {
+  lastCountedAt: null,
+  lastCountReason: null,
+  lastCountSite: null,
+  lastCountModel: null,
+  lastCountSessionId: null,
+  lastIncrementKey: null,
+  lastIncrementAt: 0,
+};
 
 function formatCost(cost) {
   return `$${cost.toFixed(cost < 1 ? 3 : 2)}`;
 }
 
-function csvEscape(value) {
-  const text = String(value);
-  if (!/[",\n]/.test(text)) return text;
-  return `"${text.replaceAll('"', '""')}"`;
+function setText(id, value) {
+  const el = document.getElementById(id);
+  if (el) el.textContent = String(value);
 }
 
-document.addEventListener('DOMContentLoaded', () => {
-  function updateDisplay() {
-    chrome.storage.local.get(
-      { byDate: {}, byModel: {}, byHour: {}, sessions: {}, total: 0 },
-      (data) => {
-      const todayDate = todayKey();
-      const today = data.byDate[todayDate] || 0;
-      const total = data.total || 0;
-      document.getElementById('today').textContent = today;
-      document.getElementById('week').textContent = getWeekTotal(data.byDate);
-      document.getElementById('month').textContent = getMonthTotal(data.byDate);
-      document.getElementById('streak').textContent = `${getStreak(data.byDate)} days`;
-      document.getElementById('total').textContent = total;
+function manifestVersion() {
+  try {
+    return chrome.runtime?.getManifest?.().version || 'Unknown';
+  } catch (_) {
+    return 'Unknown';
+  }
+}
 
-      // Model breakdown (today)
-      const todayModels = getModelCountsForDate(data.byDate, data.byModel, todayDate);
-      const sessionStats = getSessionStats(data.sessions);
-      const modelSection = document.getElementById('modelSection');
-      const modelDiv = document.getElementById('modelBreakdown');
-      const models = Object.entries(todayModels).sort((a, b) => b[1] - a[1]);
-      document.getElementById('cost').textContent = formatCost(estimateCost(todayModels));
-      document.getElementById('sessions').textContent =
-        `${sessionStats.count} (${sessionStats.avg} avg, ${sessionStats.max} max)`;
-      if (models.length > 0) {
-        modelSection.style.display = '';
-        modelDiv.replaceChildren();
-        for (const [model, count] of models) {
-          const row = document.createElement('div');
-          row.className = 'row';
+function getDisplayVersion(data = {}) {
+  return data.extensionVersion || manifestVersion();
+}
 
-          const label = document.createElement('div');
-          label.textContent = model;
+function formatTime(iso) {
+  if (!iso) return 'Never';
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return 'Unknown';
+  return date.toLocaleString([], {
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
 
-          const value = document.createElement('div');
-          value.className = 'value';
-          value.textContent = count;
+function formatReason(reason) {
+  const labels = {
+    'chatgpt-network': 'Network',
+    network: 'Network',
+    'content-tick': 'Page event',
+    'dom-event': 'Page event',
+  };
+  return labels[reason] || reason || 'None';
+}
 
-          row.append(label, value);
-          modelDiv.append(row);
-        }
-      } else {
-        modelSection.style.display = 'none';
-        modelDiv.replaceChildren();
+function getLatestSessionActivity(sessions = {}) {
+  let latest = null;
+  for (const session of Object.values(sessions || {})) {
+    if (!session || typeof session !== 'object') continue;
+    const at = session.lastSeenAt || session.startedAt;
+    const ms = Date.parse(at);
+    if (!at || Number.isNaN(ms)) continue;
+    if (!latest || ms > latest.ms) {
+      latest = {
+        at,
+        ms,
+        model: session.lastModel || '',
+        site: session.site || '',
+      };
+    }
+  }
+  if (!latest) return null;
+  return { at: latest.at, model: latest.model, site: latest.site };
+}
+
+function normalizeLastCounted(storageData = {}, backgroundStatus = null) {
+  const sources = [
+    backgroundStatus?.status,
+    backgroundStatus?.diagnostics,
+    backgroundStatus,
+    storageData.diagnostics,
+    storageData.lastDiagnostics,
+    storageData,
+  ].filter((source) => source && typeof source === 'object');
+
+  for (const source of sources) {
+    const at = source.lastCountedAt || source.countedAt || source.at || source.time || source.timestamp;
+    const reason = source.lastCountReason ||
+      source.lastCountedReason ||
+      source.countReason ||
+      source.reason ||
+      source.source ||
+      '';
+    if (at) return { at, reason: String(reason || '') };
+  }
+
+  const latestSession = getLatestSessionActivity(storageData.sessions);
+  if (!latestSession) return null;
+  return { at: latestSession.at, reason: '' };
+}
+
+function findSupportedSite(url) {
+  if (!url) return { supported: null, host: '', site: '', label: 'Unavailable' };
+
+  let parsed;
+  try {
+    parsed = new URL(url);
+  } catch (_) {
+    return { supported: null, host: '', site: '', label: 'Unavailable' };
+  }
+
+  const host = parsed.hostname;
+  const site = siteConfigForHost?.(host)?.name || '';
+  const supported = Boolean(site || isSupportedHost(host));
+  const fallbackLabel = host || parsed.protocol.replace(':', '');
+
+  return {
+    supported,
+    host,
+    site,
+    label: `${fallbackLabel} ${supported ? 'supported' : 'unsupported'}`,
+  };
+}
+
+function resolveStatus(siteInfo, statusData = {}) {
+  if (statusData.status || statusData.state) return String(statusData.status || statusData.state);
+  if (siteInfo.supported === false) return 'Unsupported here';
+  return 'Ready';
+}
+
+function renderDiagnostics(data = {}) {
+  const lastCounted = normalizeLastCounted(data);
+  setText('lastCounted', formatTime(lastCounted?.at));
+  setText('lastReason', formatReason(lastCounted?.reason));
+  setText('version', getDisplayVersion(data));
+}
+
+function requestBackgroundStatus(callback) {
+  if (!chrome.runtime?.sendMessage) {
+    callback(null);
+    return;
+  }
+
+  try {
+    chrome.runtime.sendMessage({ type: 'getStatus' }, (response) => {
+      if (chrome.runtime?.lastError || !response?.ok || !response.status) {
+        callback(null);
+        return;
       }
     });
   }
