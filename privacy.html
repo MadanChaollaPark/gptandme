@@ -31,14 +31,17 @@
     <h2>Permissions</h2>
     <ul>
       <li><strong>storage</strong> — used to save your prompt counts locally.</li>
-      <li><strong>host_permissions (chatgpt.com, chat.openai.com)</strong> — required so the content script can detect when you send a prompt on ChatGPT.</li>
+      <li><strong>webRequest</strong> — used locally for ChatGPT request detection so user-sent prompts can be counted more reliably.</li>
+      <li><strong>activeTab</strong> — used only when you open the popup so it can label whether the current tab is a supported host.</li>
+      <li><strong>alarms</strong> — used locally to refresh the badge count after date changes while the browser is running.</li>
+      <li><strong>host_permissions</strong> — limited to chatgpt.com, chat.openai.com, claude.ai, gemini.google.com, perplexity.ai, and www.perplexity.ai so the content script can detect user sends on supported chat sites.</li>
     </ul>
 
     <h2>Third-party services</h2>
     <p>This extension does not integrate with any third-party analytics, advertising, or tracking services.</p>
 
     <h2>User control</h2>
-    <p>You can reset your counts at any time using the "Reset today" or "Reset all" buttons. Uninstalling the extension removes all stored data.</p>
+    <p>You can reset your counts at any time using the "Reset today" or "Reset all" buttons in the popup. You can also export or import a local CSV manually. Uninstalling the extension removes the locally stored extension data from the browser profile.</p>
 
     <h2>Contact</h2>
     <p>Questions or concerns? Visit <a href="https://gptandme.site">gptandme.site</a>.</p>
