@@ -367,8 +367,15 @@ function startPopup() {
     }
   });
 
-  // Add reset functionality
-  document.getElementById('resetToday').addEventListener('click', () => {
+  const toggle = pageCounterToggle();
+  if (toggle) {
+    toggle.addEventListener('change', (event) => {
+      chrome.storage.local.set({ showPageCounter: event.target.checked });
+    });
+  }
+
+  const resetToday = document.getElementById('resetToday');
+  if (resetToday) resetToday.addEventListener('click', () => {
     chrome.storage.local.get({ byDate: {}, byModel: {}, byHour: {}, total: 0 }, (data) => {
       const key = todayKey();
       const todayCount = data.byDate[key] || 0;
@@ -386,6 +393,7 @@ function startPopup() {
         byModel: newByModel,
         byHour: newByHour,
         total: newTotal,
+        ...(newTotal === 0 ? CLEARED_DIAGNOSTICS : {}),
       });
     });
   });
