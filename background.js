@@ -207,10 +207,19 @@ async function incrementNow(
   sessions[sessionId].prompts = (sessions[sessionId].prompts || 0) + 1;
   sessions[sessionId].site = site;
   sessions[sessionId].lastModel = model;
-  sessions[sessionId].lastSeenAt = new Date().toISOString();
+  sessions[sessionId].lastSeenAt = countedAt;
 
   const newTotal = (total || 0) + 1;
-  await setCounts({ byDate, byModel, byHour, sessions, total: newTotal });
+  await setCounts({
+    byDate,
+    byModel,
+    byHour,
+    sessions,
+    total: newTotal,
+    lastIncrementKey: dedupe.key,
+    lastIncrementAt: dedupe.now,
+    ...countDiagnostics({ countedAt, reason, site, model, sessionId }),
+  });
   setBadgeCount(byDate[day]);
 }
 
