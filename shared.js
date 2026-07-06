@@ -467,6 +467,8 @@
     mergeUsageData,
     parseUsageCsv,
     shouldCountKey,
+    siteConfigForHost,
+    sumCounts,
     todayKey,
   };
 });
