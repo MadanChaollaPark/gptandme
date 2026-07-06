@@ -349,11 +349,19 @@ function startPopup() {
   updateDisplay();
   updateActiveTabStatus();
 
-  // Listen for changes in storage and update the display
   chrome.storage.onChanged.addListener((changes, namespace) => {
     if (
       namespace === 'local' &&
-      (changes.byDate || changes.total || changes.byModel || changes.byHour || changes.sessions)
+      (
+        changes.byDate ||
+        changes.total ||
+        changes.byModel ||
+        changes.byHour ||
+        changes.sessions ||
+        changes.showPageCounter ||
+        changes.lastCountedAt ||
+        changes.lastCountReason
+      )
     ) {
       updateDisplay();
     }
