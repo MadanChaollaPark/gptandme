@@ -97,11 +97,21 @@
       <div class="row"><div class="label">Source</div><div id="lastReason" class="value">None</div></div>
       <div class="row"><div class="label">Version</div><div id="version" class="value">Unknown</div></div>
     </div>
-    <div class="row">
-      <button id="resetToday">Reset today</button>
-      <button id="resetAll">Reset all</button>
+
+    <label class="setting">
+      <input id="pageCounterToggle" type="checkbox" />
+      <span>Show in-page counter</span>
+    </label>
+
+    <div class="button-row">
+      <button id="downloadCsv">Download CSV</button>
+      <button id="importCsv">Import CSV</button>
+      <button id="resetToday" class="danger">Reset today</button>
+      <button id="resetAll" class="danger">Reset all</button>
     </div>
-    <div class="muted">Counts are stored locally. Only user sends are counted.</div>
+    <input id="importCsvInput" type="file" accept=".csv,text/csv" />
+    <div id="importStatus" class="muted">Counts are stored locally. Only user sends are counted.</div>
+
     <script src="shared.js"></script>
     <script src="popup.js"></script>
   </body>
