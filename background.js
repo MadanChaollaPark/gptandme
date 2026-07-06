@@ -1,7 +1,8 @@
 importScripts('shared.js');
 
-const { hourKey, isChatGptPromptEndpoint, isUserSendPayload, todayKey } = GptAndMeShared;
+const { hourKey, isChatGptPromptEndpoint, isUserSendPayload, sumCounts, todayKey } = GptAndMeShared;
 const DEDUPE_MS = 2000;
+const BADGE_REFRESH_ALARM = 'gptandme-refresh-badge';
 const BADGE_BACKGROUND_COLOR = '#d1242f';
 const BADGE_TEXT_COLOR = '#ffffff';
 let lastIncrement = { key: null, at: 0 };
