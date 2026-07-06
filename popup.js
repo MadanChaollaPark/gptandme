@@ -419,5 +419,32 @@ function startPopup() {
     importCsvButton.addEventListener('click', () => {
       importCsvInput.click();
     });
+  }
+
+  if (importCsvInput) importCsvInput.addEventListener('change', async (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    try {
+      importCsvText(await file.text());
+    } catch (_) {
+      setText('importStatus', 'Could not read CSV.');
+    } finally {
+      event.target.value = '';
+    }
   });
-});
+}
+
+if (typeof document !== 'undefined') {
+  document.addEventListener('DOMContentLoaded', startPopup);
+}
+
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = {
+    findSupportedSite,
+    formatReason,
+    formatTime,
+    getLatestSessionActivity,
+    normalizeLastCounted,
+    resolveStatus,
+  };
+}
