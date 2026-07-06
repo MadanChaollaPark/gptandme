@@ -187,7 +187,140 @@ function requestBackgroundStatus(callback) {
         callback(null);
         return;
       }
+      callback(response.status);
     });
+  } catch (_) {
+    callback(null);
+  }
+}
+
+function pageCounterToggle() {
+  return document.getElementById('pageCounterToggle') || document.getElementById('showPageCounter');
+}
+
+function renderSparkline(values) {
+  const container = document.getElementById('sparkline');
+  if (!container) return;
+  container.replaceChildren();
+  const max = Math.max(1, ...values.map((value) => Number(value || 0)));
+
+  for (const value of values) {
+    const bar = document.createElement('div');
+    bar.className = 'bar';
+    bar.style.height = `${Math.max(2, Math.round((Number(value || 0) / max) * 32))}px`;
+    bar.title = `${value} prompts`;
+    container.append(bar);
+  }
+}
+
+function updateModelBreakdown(data, todayDate) {
+  const todayModels = getModelCountsForDate(data.byDate, data.byModel, todayDate);
+  const modelSection = document.getElementById('modelSection');
+  const modelDiv = document.getElementById('modelBreakdown');
+  const models = Object.entries(todayModels).sort((a, b) => b[1] - a[1]);
+
+  if (models.length > 0) {
+    modelSection.style.display = '';
+    modelDiv.replaceChildren();
+    for (const [model, count] of models) {
+      const row = document.createElement('div');
+      row.className = 'row';
+
+      const label = document.createElement('div');
+      label.textContent = model;
+
+      const value = document.createElement('div');
+      value.className = 'value';
+      value.textContent = count;
+
+      row.append(label, value);
+      modelDiv.append(row);
+    }
+  } else {
+    modelSection.style.display = 'none';
+    modelDiv.replaceChildren();
+  }
+}
+
+function applySiteStatus(siteInfo) {
+  const supported = siteInfo.supported === true;
+  const unsupported = siteInfo.supported === false;
+  const statusEl = document.getElementById('statusValue');
+
+  setText('currentSite', siteInfo.label);
+  setText('statusValue', supported ? 'Supported' : unsupported ? 'Unsupported' : 'Unknown');
+  if (!statusEl) return;
+  statusEl.style.color = supported ? '#166534' : '#7c2d12';
+  statusEl.style.background = supported ? '#eef7f1' : '#fff7ed';
+  statusEl.style.borderColor = supported ? '#cfe9d8' : '#fed7aa';
+}
+
+function updateActiveTabStatus() {
+  if (!chrome.tabs?.query) {
+    chrome.storage?.local?.get?.({ activeTabUrl: null }, (data) => {
+      applySiteStatus(data.activeTabUrl ? findSupportedSite(data.activeTabUrl) : {
+        supported: null,
+        host: '',
+        site: '',
+        label: 'Unavailable',
+      });
+    });
+    return;
+  }
+
+  chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+    const tab = tabs?.[0];
+    applySiteStatus(findSupportedSite(tab?.url));
+  });
+}
+
+function updateDisplay() {
+  chrome.storage.local.get(STORAGE_DEFAULTS, (data) => {
+    const todayDate = todayKey();
+    const today = data.byDate[todayDate] || 0;
+    const todayModels = getModelCountsForDate(data.byDate, data.byModel, todayDate);
+    const sessionStats = getSessionStats(data.sessions);
+    const recentHours = getRecentHours(data.byHour, 24);
+
+    setText('today', today);
+    setText('week', getWeekTotal(data.byDate));
+    setText('month', getMonthTotal(data.byDate));
+    setText('last24', recentHours.reduce((sum, count) => sum + Number(count || 0), 0));
+    setText('streak', `${getStreak(data.byDate)} days`);
+    setText('total', data.total || sumCounts(data.byDate));
+    setText('cost', formatCost(estimateCost(todayModels)));
+    setText('sessions', `${sessionStats.count} (${sessionStats.avg} avg, ${sessionStats.max} max)`);
+    renderDiagnostics(data);
+
+    const toggle = pageCounterToggle();
+    if (toggle) toggle.checked = data.showPageCounter !== false;
+    renderSparkline(getRecentDays(data.byDate, 7));
+    updateModelBreakdown(data, todayDate);
+    requestBackgroundStatus((status) => {
+      if (status) renderDiagnostics(status);
+    });
+  });
+}
+
+function downloadCsv() {
+  chrome.storage.local.get({ byDate: {}, byModel: {} }, (data) => {
+    const blob = new Blob([buildUsageCsv(data.byDate, data.byModel)], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'gptandme-usage.csv';
+    a.click();
+    URL.revokeObjectURL(url);
+  });
+}
+
+function importCsvText(text) {
+  const parsed = parseUsageCsv(text);
+  const importedTotal = sumCounts(parsed.byDate);
+
+  if (importedTotal === 0) {
+    setText('importStatus', parsed.errors[0] || 'No valid rows found.');
+    return;
   }
 
   updateDisplay();
