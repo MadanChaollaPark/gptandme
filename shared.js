@@ -24,8 +24,12 @@
 
   const CHATGPT_SEND_BUTTONS = [
     '[data-testid="send-button"]',
+    '[data-testid="composer-send-button"]',
     '#composer-submit-button',
     'button[aria-label*="Send"]',
+    'button[aria-label*="Submit"]',
+    'button[data-testid*="send"]',
+    'button[type="submit"]',
   ];
 
   const SITES = {
