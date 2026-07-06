@@ -328,10 +328,129 @@
     return '#216e39';
   }
 
+  function csvEscape(value) {
+    const text = String(value ?? '');
+    if (!/[",\n]/.test(text)) return text;
+    return `"${text.replaceAll('"', '""')}"`;
+  }
+
+  function buildUsageCsv(byDate = {}, byModel = {}) {
+    const rows = ['date,model,count'];
+    const dates = [...new Set([...Object.keys(byDate), ...Object.keys(byModel)])].sort();
+    for (const date of dates) {
+      const models = getModelCountsForDate(byDate, byModel, date);
+      if (Object.keys(models).length) {
+        for (const [model, count] of Object.entries(models).sort()) {
+          rows.push(`${date},${csvEscape(model)},${Number(count || 0)}`);
+        }
+      } else {
+        rows.push(`${date},unknown,${Number(byDate[date] || 0)}`);
+      }
+    }
+    return rows.join('\n');
+  }
+
+  function parseCsvLine(line) {
+    const cells = [];
+    let cell = '';
+    let quoted = false;
+
+    for (let i = 0; i < line.length; i += 1) {
+      const char = line[i];
+      if (quoted) {
+        if (char === '"' && line[i + 1] === '"') {
+          cell += '"';
+          i += 1;
+        } else if (char === '"') {
+          quoted = false;
+        } else {
+          cell += char;
+        }
+      } else if (char === ',') {
+        cells.push(cell);
+        cell = '';
+      } else if (char === '"' && cell === '') {
+        quoted = true;
+      } else {
+        cell += char;
+      }
+    }
+
+    cells.push(cell);
+    return cells.map((value) => value.trim());
+  }
+
+  function parseUsageCsv(text = '') {
+    const errors = [];
+    const byDate = {};
+    const byModel = {};
+    const lines = String(text).split(/\r?\n/).filter((line) => line.trim().length > 0);
+
+    if (lines.length === 0) {
+      return { byDate, byModel, errors: ['CSV is empty'] };
+    }
+
+    const header = parseCsvLine(lines[0]).map((value) => value.toLowerCase());
+    const dateIndex = header.indexOf('date');
+    const modelIndex = header.indexOf('model');
+    const countIndex = header.indexOf('count');
+
+    if (dateIndex === -1 || countIndex === -1) {
+      return { byDate, byModel, errors: ['CSV must include date and count columns'] };
+    }
+
+    for (let i = 1; i < lines.length; i += 1) {
+      const rowNumber = i + 1;
+      const cells = parseCsvLine(lines[i]);
+      const date = cells[dateIndex];
+      const model = modelIndex === -1 ? 'unknown' : (cells[modelIndex] || 'unknown');
+      const count = Number(cells[countIndex]);
+
+      if (!parseDateKey(date)) {
+        errors.push(`Row ${rowNumber}: invalid date`);
+        continue;
+      }
+      if (!Number.isFinite(count) || count < 0 || !Number.isInteger(count)) {
+        errors.push(`Row ${rowNumber}: invalid count`);
+        continue;
+      }
+
+      byDate[date] = (byDate[date] || 0) + count;
+      if (!byModel[date]) byModel[date] = {};
+      byModel[date][model] = (byModel[date][model] || 0) + count;
+    }
+
+    return { byDate, byModel, errors };
+  }
+
+  function sumCounts(byDate = {}) {
+    return Object.values(byDate).reduce((sum, count) => sum + Number(count || 0), 0);
+  }
+
+  function mergeUsageData(current = {}, imported = {}) {
+    const byDate = { ...(current.byDate || {}) };
+    const byModel = { ...(current.byModel || {}) };
+
+    for (const [date, count] of Object.entries(imported.byDate || {})) {
+      byDate[date] = Number(byDate[date] || 0) + Number(count || 0);
+    }
+
+    for (const [date, models] of Object.entries(imported.byModel || {})) {
+      if (!byModel[date]) byModel[date] = {};
+      for (const [model, count] of Object.entries(models || {})) {
+        byModel[date][model] = Number(byModel[date][model] || 0) + Number(count || 0);
+      }
+    }
+
+    return { byDate, byModel, total: sumCounts(byDate) };
+  }
+
   return {
     PRICE_PER_PROMPT,
     SITES,
     buildHeatmapGrid,
+    buildUsageCsv,
+    csvEscape,
     estimateCost,
     getHeatmapColor,
     getMonthTotal,
