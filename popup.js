@@ -398,33 +398,26 @@ function startPopup() {
     });
   });
 
-  document.getElementById('resetAll').addEventListener('click', () => {
-    chrome.storage.local.set({ byDate: {}, byModel: {}, byHour: {}, sessions: {}, total: 0 });
+  const resetAll = document.getElementById('resetAll');
+  if (resetAll) resetAll.addEventListener('click', () => {
+    chrome.storage.local.set({
+      byDate: {},
+      byModel: {},
+      byHour: {},
+      sessions: {},
+      total: 0,
+      ...CLEARED_DIAGNOSTICS,
+    });
   });
 
-  // CSV export — date,model,count rows for billing/usage tracking
-  document.getElementById('downloadCsv').addEventListener('click', () => {
-    chrome.storage.local.get({ byDate: {}, byModel: {} }, (data) => {
-      const rows = ['date,model,count'];
-      const dates = [...new Set([...Object.keys(data.byDate), ...Object.keys(data.byModel)])].sort();
-      for (const date of dates) {
-        const models = getModelCountsForDate(data.byDate, data.byModel, date);
-        if (Object.keys(models).length) {
-          for (const [model, count] of Object.entries(models).sort()) {
-            rows.push(`${date},${csvEscape(model)},${count}`);
-          }
-        } else {
-          // Older data without model info
-          rows.push(`${date},unknown,${data.byDate[date] || 0}`);
-        }
-      }
-      const blob = new Blob([rows.join('\n')], { type: 'text/csv' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = 'gptandme-usage.csv';
-      a.click();
-      URL.revokeObjectURL(url);
+  const downloadCsvButton = document.getElementById('downloadCsv');
+  if (downloadCsvButton) downloadCsvButton.addEventListener('click', downloadCsv);
+
+  const importCsvButton = document.getElementById('importCsv');
+  const importCsvInput = document.getElementById('importCsvInput');
+  if (importCsvButton && importCsvInput) {
+    importCsvButton.addEventListener('click', () => {
+      importCsvInput.click();
     });
   });
 });
