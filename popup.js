@@ -9,9 +9,16 @@ const {
   estimateCost,
   getMonthTotal,
   getModelCountsForDate,
+  getRecentDays,
+  getRecentHours,
   getSessionStats,
   getStreak,
   getWeekTotal,
+  isSupportedHost,
+  mergeUsageData,
+  parseUsageCsv,
+  siteConfigForHost,
+  sumCounts,
   todayKey,
 } = GptAndMeShared;
 
