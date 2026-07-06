@@ -67,6 +67,7 @@ function tick() {
     model,
     site: siteName,
     sessionId: sessionId(),
+    reason: 'dom-event',
   });
 }
 
