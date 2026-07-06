@@ -360,9 +360,3 @@ chrome.webRequest.onBeforeRequest.addListener(
   { urls: urlFilters },
   ["requestBody"]
 );
-
-// Keep badge in sync if date flips while browser is open
-setInterval(async () => {
-  const { byDate } = await getCounts();
-  setBadgeCount(byDate[todayKey()]);
-}, 60 * 1000);
