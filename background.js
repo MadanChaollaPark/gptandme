@@ -348,7 +348,13 @@ chrome.webRequest.onBeforeRequest.addListener(
     const payload = parseJsonFromRequestBody(details);
     if (isUserSendPayload(payload)) {
       const sessionId = `tab-${details.tabId}`;
-      increment(payload.model || 'unknown', siteFromUrl(details.url), sessionId, sessionId);
+      increment(
+        payload.model || 'unknown',
+        siteFromUrl(details.url),
+        sessionId,
+        sessionId,
+        'chatgpt-network'
+      );
     }
   },
   { urls: urlFilters },
