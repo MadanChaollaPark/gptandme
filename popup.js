@@ -323,7 +323,31 @@ function importCsvText(text) {
     return;
   }
 
+  chrome.storage.local.get(STORAGE_DEFAULTS, (data) => {
+    const merged = mergeUsageData(data, parsed);
+    const payload = {
+      data: {
+        ...data,
+        ...merged,
+        extensionVersion: manifestVersion() || data.extensionVersion,
+      },
+    };
+
+    chrome.runtime.sendMessage({ type: 'importData', payload }, (response) => {
+      if (response?.ok) {
+        const warning = parsed.errors.length ? ` ${parsed.errors.length} row(s) skipped.` : '';
+        setText('importStatus', `Imported ${importedTotal} prompts.${warning}`);
+        updateDisplay();
+      } else {
+        setText('importStatus', response?.error || 'Import failed.');
+      }
+    });
+  });
+}
+
+function startPopup() {
   updateDisplay();
+  updateActiveTabStatus();
 
   // Listen for changes in storage and update the display
   chrome.storage.onChanged.addListener((changes, namespace) => {
