@@ -4,13 +4,11 @@ GPTandme is a Manifest V3 browser extension that counts prompts sent from suppor
 
 ## v1.2 Surfaces
 
-- Daily, weekly, monthly, and all-time prompt counts
-- Per-model breakdown when the site exposes the model
-- Hourly and session-level storage for analytics
-- CSV export from the popup
-- Local-only storage through `chrome.storage.local`
+- Extension badge: shows today's prompt count.
+- Extension popup: shows today, week, month, last 24 hours, streak, total, estimated cost, sessions, model breakdown, diagnostics, CSV import/export, and reset controls.
+- Optional in-page widget/counter: shows today's local count on supported chat hosts. It is optional; core tracking should still work through the badge and popup if the widget is hidden or unavailable.
 
-## Supported Sites
+## Supported Browsers
 
 - ChatGPT (`chatgpt.com`, `chat.openai.com`)
 - Claude (`claude.ai`)
