@@ -81,12 +81,21 @@
     <div class="row"><div>Total</div><div id="total" class="value">0</div></div>
     <div class="row"><div>Est. today</div><div id="cost" class="value">$0.000</div></div>
     <div class="row"><div>Sessions</div><div id="sessions" class="value">0</div></div>
-    <div id="modelSection" style="display:none;">
-      <div class="section-title">Models (today)</div>
+
+    <div class="section-title">Last 7 Days</div>
+    <div id="sparkline" class="sparkline" aria-label="Last 7 days chart"></div>
+
+    <div id="modelSection" class="models" style="display:none;">
+      <div class="section-title">Models Today</div>
       <div id="modelBreakdown"></div>
     </div>
-    <div class="row">
-      <button id="downloadCsv">Download CSV</button>
+
+    <div class="section-title">Diagnostics</div>
+    <div class="status-grid">
+      <div class="row"><div class="label">Current site</div><div id="currentSite" class="value">Unknown</div></div>
+      <div class="row"><div class="label">Last counted</div><div id="lastCounted" class="value">Never</div></div>
+      <div class="row"><div class="label">Source</div><div id="lastReason" class="value">None</div></div>
+      <div class="row"><div class="label">Version</div><div id="version" class="value">Unknown</div></div>
     </div>
     <div class="row">
       <button id="resetToday">Reset today</button>
