@@ -90,11 +90,10 @@ npm run build
 
 `npm run build` creates the Chrome Web Store zip at:
 
-1. Open `chrome://extensions`.
-2. Enable Developer mode.
-3. Click **Load unpacked**.
-4. Select this repository folder.
+```text
+/Users/madan/Code/ai-tools/gptandme/dist/gptandme.zip
+```
 
 ## Privacy
 
-The extension does not send prompt counts, model names, or browsing data to any server. Counts stay in local browser storage unless you export them manually as CSV.
+GPTandme is local-only. It does not send prompt counts, model names, session stats, host data, request data, or browsing data to any server. Counts stay in `chrome.storage.local` unless you manually export a CSV from the popup.
