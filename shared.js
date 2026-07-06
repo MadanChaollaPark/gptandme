@@ -455,6 +455,7 @@
     getHeatmapColor,
     getMonthTotal,
     getModelCountsForDate,
+    getRecentHours,
     getRecentDays,
     getSessionStats,
     getStreak,
