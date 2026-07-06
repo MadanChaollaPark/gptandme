@@ -13,7 +13,11 @@ const countDomEvents = !siteConfig.countViaNetwork || siteConfig.domFallback;
 // Best signal: intercept ChatGPT fetches to learn the model from the request.
 // inject.js runs in the page context and dispatches a custom event with the
 // model slug read straight from the request body.
-if (siteName === 'chatgpt.com' || siteName === 'chat.openai.com') {
+if (
+  (siteName === 'chatgpt.com' || siteName === 'chat.openai.com') &&
+  typeof chrome !== 'undefined' &&
+  chrome.runtime?.getURL
+) {
   const s = document.createElement('script');
   s.src = chrome.runtime.getURL('inject.js');
   s.onload = () => s.remove();
