@@ -50,11 +50,46 @@ function setBadgeCount(count) {
 function dedupeRecord(site, sessionId, dedupeKey = sessionId) {
   const now = Date.now();
   const key = `${site || 'unknown'}:${dedupeKey || sessionId || 'unknown'}`;
+  return { key, now };
+}
+
+function shouldDedupeRecord(record, storedKey = null, storedAt = 0) {
+  const { key, now } = record;
   if (lastIncrement.key === key && now - lastIncrement.at < DEDUPE_MS) {
     return true;
   }
-  lastIncrement = { key, at: now };
-  return false;
+  return storedKey === key && now - Number(storedAt || 0) < DEDUPE_MS;
+}
+
+function rememberDedupeRecord(record) {
+  lastIncrement = { key: record.key, at: record.now };
+}
+
+function isObject(value) {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+function cloneObject(value) {
+  if (!isObject(value)) return {};
+  try {
+    return JSON.parse(JSON.stringify(value));
+  } catch (_) {
+    return {};
+  }
+}
+
+function safeString(value, fallback = 'unknown', maxLength = 256) {
+  const text = String(value ?? '').trim();
+  return (text || fallback).slice(0, maxLength);
+}
+
+function siteForDiagnostics(site) {
+  const text = safeString(site, 'unknown', 512);
+  try {
+    return new URL(text.includes('://') ? text : `https://${text}`).hostname || 'unknown';
+  } catch (_) {
+    return text.split(/[/?#]/)[0] || 'unknown';
+  }
 }
 
 async function increment(model = 'unknown', site = 'unknown', sessionId = 'default', dedupeKey = sessionId) {
