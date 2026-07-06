@@ -296,7 +296,37 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     const site = message.site || sender.tab?.url || 'unknown';
     const sessionId = message.sessionId || `tab-${sender.tab?.id ?? 'unknown'}`;
     const dedupeKey = `tab-${sender.tab?.id ?? sessionId}`;
-    increment(message.model || 'unknown', site, sessionId, dedupeKey);
+    increment(message.model || 'unknown', site, sessionId, dedupeKey, message.reason || 'content-tick');
+    return;
+  }
+
+  if (message.type === 'getStatus') {
+    return sendAsyncResponse(
+      sendResponse,
+      getCounts().then(data => ({ ok: true, status: buildStatus(data) }))
+    );
+  }
+
+  if (message.type === 'exportData') {
+    if (!canManageStoredData(sender)) {
+      sendResponse({ ok: false, error: 'exportData is only available from extension UI' });
+      return;
+    }
+    return sendAsyncResponse(
+      sendResponse,
+      getCounts().then(data => ({ ok: true, export: buildExportPayload(data) }))
+    );
+  }
+
+  if (message.type === 'importData') {
+    if (!canManageStoredData(sender)) {
+      sendResponse({ ok: false, error: 'importData is only available from extension UI' });
+      return;
+    }
+    return sendAsyncResponse(
+      sendResponse,
+      importData(message.payload ?? message.data).then(result => ({ ok: true, import: result }))
+    );
   }
 });
 
