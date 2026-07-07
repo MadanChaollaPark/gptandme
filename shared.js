@@ -5,22 +5,48 @@
   }
   root.GptAndMeShared = api;
 })(typeof globalThis !== 'undefined' ? globalThis : this, function () {
-  const PRICE_PER_PROMPT = {
-    unknown: 0.01,
-    'gpt-4o': 0.02,
-    'gpt-4o-mini': 0.002,
-    'gpt-4.5': 0.05,
-    'gpt-4': 0.03,
-    o1: 0.04,
-    'o1-mini': 0.01,
-    o3: 0.04,
-    'o3-mini': 0.01,
-    'claude-sonnet': 0.03,
-    'claude-opus': 0.08,
-    'claude-haiku': 0.004,
-    'gemini-flash': 0.002,
-    'gemini-pro': 0.02,
-  };
+  const PRICING_PROFILE_VERSION = 'openai-api-2026-07-07';
+  const DEFAULT_PROMPT_TOKEN_ESTIMATE = Object.freeze({
+    input: 1000,
+    output: 500,
+  });
+  const MODEL_TOKEN_PRICES_PER_1M = Object.freeze({
+    'gpt-5.5-pro': { input: 30, output: 180 },
+    'gpt-5.5': { input: 5, output: 30 },
+    'gpt-5.4-pro': { input: 30, output: 180 },
+    'gpt-5.4': { input: 2.5, output: 15 },
+    'gpt-5.4-mini': { input: 0.75, output: 4.5 },
+    'gpt-5.4-nano': { input: 0.2, output: 1.25 },
+    'gpt-5.3-codex': { input: 1.75, output: 14 },
+    'gpt-5': { input: 1.25, output: 10 },
+    'chat-latest': { input: 5, output: 30 },
+  });
+  const MODEL_ALIASES = Object.freeze({
+    'gpt-5-5-pro': 'gpt-5.5-pro',
+    'gpt-5-5': 'gpt-5.5',
+    'gpt-5-4-pro': 'gpt-5.4-pro',
+    'gpt-5-4-mini': 'gpt-5.4-mini',
+    'gpt-5-4-nano': 'gpt-5.4-nano',
+    'gpt-5-4': 'gpt-5.4',
+    'gpt-5-3-codex': 'gpt-5.3-codex',
+    'openai/gpt-5-5-pro': 'gpt-5.5-pro',
+    'openai/gpt-5-5': 'gpt-5.5',
+    'openai/gpt-5-4-pro': 'gpt-5.4-pro',
+    'openai/gpt-5-4': 'gpt-5.4',
+  });
+
+  function pricePerPromptFromTokenRates(rates = {}, estimate = DEFAULT_PROMPT_TOKEN_ESTIMATE) {
+    const input = Number(rates.input || 0) * Number(estimate.input || 0);
+    const output = Number(rates.output || 0) * Number(estimate.output || 0);
+    return (input + output) / 1_000_000;
+  }
+
+  const PRICE_PER_PROMPT = Object.freeze(Object.fromEntries(
+    Object.entries(MODEL_TOKEN_PRICES_PER_1M).map(([model, rates]) => [
+      model,
+      pricePerPromptFromTokenRates(rates),
+    ])
+  ));
 
   const CHATGPT_SEND_BUTTONS = [
     '[data-testid="send-button"]',
@@ -204,11 +230,65 @@
     return !event.shiftKey;
   }
 
+  function normalizeModelName(model) {
+    const raw = String(model || '').trim().toLowerCase();
+    if (!raw) return 'unknown';
+    return MODEL_ALIASES[raw] || raw;
+  }
+
+  function displayModelName(model) {
+    return normalizeModelName(model);
+  }
+
+  function priceForModel(model) {
+    const normalized = normalizeModelName(model);
+    const price = PRICE_PER_PROMPT[normalized];
+    return Number.isFinite(price) ? price : null;
+  }
+
+  function estimateCostDetails(modelCounts = {}) {
+    const details = {
+      total: 0,
+      pricedCount: 0,
+      unpricedCount: 0,
+      modelCount: 0,
+      pricingProfileVersion: PRICING_PROFILE_VERSION,
+      assumedInputTokens: DEFAULT_PROMPT_TOKEN_ESTIMATE.input,
+      assumedOutputTokens: DEFAULT_PROMPT_TOKEN_ESTIMATE.output,
+      models: {},
+    };
+
+    for (const [model, countValue] of Object.entries(modelCounts)) {
+      const count = Number(countValue || 0);
+      if (!Number.isFinite(count) || count <= 0) continue;
+
+      const normalized = normalizeModelName(model);
+      const price = priceForModel(normalized);
+      const modelDetails = {
+        count,
+        normalizedModel: normalized,
+        priced: price !== null,
+        unitCost: price,
+        cost: 0,
+      };
+
+      details.modelCount += count;
+      if (price === null) {
+        details.unpricedCount += count;
+      } else {
+        modelDetails.cost = count * price;
+        details.total += modelDetails.cost;
+        details.pricedCount += count;
+      }
+
+      details.models[model] = modelDetails;
+    }
+
+    return details;
+  }
+
   function estimateCost(modelCounts = {}) {
-    return Object.entries(modelCounts).reduce((sum, [model, count]) => {
-      const price = PRICE_PER_PROMPT[model] || PRICE_PER_PROMPT.unknown;
-      return sum + Number(count || 0) * price;
-    }, 0);
+    return estimateCostDetails(modelCounts).total;
   }
 
   function getModelCountsForDate(byDate = {}, byModel = {}, key = todayKey()) {
@@ -446,12 +526,17 @@
   }
 
   return {
+    DEFAULT_PROMPT_TOKEN_ESTIMATE,
+    MODEL_TOKEN_PRICES_PER_1M,
     PRICE_PER_PROMPT,
+    PRICING_PROFILE_VERSION,
     SITES,
     buildHeatmapGrid,
     buildUsageCsv,
     csvEscape,
+    displayModelName,
     estimateCost,
+    estimateCostDetails,
     getHeatmapColor,
     getMonthTotal,
     getModelCountsForDate,
@@ -465,7 +550,9 @@
     isSupportedHost,
     isUserSendPayload,
     mergeUsageData,
+    normalizeModelName,
     parseUsageCsv,
+    priceForModel,
     shouldCountKey,
     siteConfigForHost,
     sumCounts,
