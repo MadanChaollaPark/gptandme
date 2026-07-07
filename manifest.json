@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "GPTandME",
-  "version": "1.2.3",
+  "version": "1.2.4",
   "description": "Count prompts sent on supported AI chat websites and keep usage stats locally in your browser.",
   "permissions": ["storage", "webRequest", "activeTab", "alarms"],
   "host_permissions": [

@@ -2,7 +2,7 @@
 
 GPTandME is a Manifest V3 browser extension that counts prompts sent from supported AI chat sites and stores the counts locally in the browser.
 
-## v1.2.3 Surfaces
+## v1.2.4 Surfaces
 
 - Extension badge: shows today's prompt count.
 - Extension popup: shows today, week, month, last 24 hours, streak, total, an OpenAI API cost proxy, sessions, model breakdown, diagnostics, CSV import/export, and reset controls.
