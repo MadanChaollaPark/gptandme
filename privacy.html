@@ -5,7 +5,22 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Privacy Policy - GPTandme</title>
     <style>
-      body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; max-width: 600px; margin: 40px auto; padding: 0 20px; line-height: 1.6; color: #222; }
+      :root {
+        color-scheme: light;
+        --bg: #ffffff;
+        --text: #222222;
+        --link: #1d4ed8;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          color-scheme: dark;
+          --bg: #0f1419;
+          --text: #e6edf3;
+          --link: #8ab4ff;
+        }
+      }
+      body { background: var(--bg); color: var(--text); font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; max-width: 600px; margin: 40px auto; padding: 0 20px; line-height: 1.6; }
+      a { color: var(--link); }
       h1 { font-size: 22px; }
       h2 { font-size: 16px; margin-top: 24px; }
       p, li { font-size: 14px; }
@@ -14,16 +29,16 @@
   <body>
     <h1>Privacy Policy</h1>
     <p><strong>GPTandme — ChatGPT Query Counter</strong></p>
-    <p>Last updated: 2026-07-06</p>
+    <p>Last updated: 2026-07-07</p>
 
     <h2>Data collection</h2>
     <p>This extension does <strong>not</strong> collect, transmit, sell, or share personal information. It does not send data to any server and does not use analytics, advertising, or tracking services.</p>
 
     <h2>Data storage</h2>
-    <p>All usage data is stored locally on your device using the Chrome Storage API. This includes prompt counts, daily/weekly/monthly totals, model-count summaries when available, hourly/session statistics, non-sensitive diagnostics such as the last counted time/source, and local preferences such as the in-page counter setting. No data leaves your browser unless you manually export a CSV file from the popup.</p>
+    <p>All usage data is stored locally on your device using the Chrome Storage API. This includes prompt counts, daily/weekly/monthly totals, model-count summaries when available, hourly/session statistics, non-sensitive diagnostics such as the last counted time/source and last supported host, and local preferences such as the in-page counter setting. No data leaves your browser unless you manually export a CSV file from the popup.</p>
 
     <h2>Extension surfaces</h2>
-    <p>Version 1.2 exposes local usage information through the extension badge, the extension popup, and an optional in-page widget/counter on supported chat hosts. The widget is optional; the badge and popup remain the primary supported surfaces.</p>
+    <p>Version 1.2.2 exposes local usage information through the extension badge, the extension popup, and an optional in-page widget/counter on supported chat hosts. The popup may show a local OpenAI API cost proxy based on prompt-count assumptions; it is not actual billing data. The widget is optional; the badge and popup remain the primary supported surfaces.</p>
 
     <h2>Supported hosts</h2>
     <p>The extension only runs on supported AI chat hosts: chatgpt.com, chat.openai.com, claude.ai, gemini.google.com, perplexity.ai, and www.perplexity.ai. It does not run on OpenAI platform, API, billing, help, documentation, or unrelated web pages.</p>

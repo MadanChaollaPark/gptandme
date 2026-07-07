@@ -2,10 +2,10 @@
 
 GPTandme is a Manifest V3 browser extension that counts prompts sent from supported AI chat sites and stores the counts locally in the browser.
 
-## v1.2 Surfaces
+## v1.2.2 Surfaces
 
 - Extension badge: shows today's prompt count.
-- Extension popup: shows today, week, month, last 24 hours, streak, total, estimated cost, sessions, model breakdown, diagnostics, CSV import/export, and reset controls.
+- Extension popup: shows today, week, month, last 24 hours, streak, total, an OpenAI API cost proxy, sessions, model breakdown, diagnostics, CSV import/export, and reset controls.
 - Optional in-page widget/counter: shows today's local count on supported chat hosts. It is optional; core tracking should still work through the badge and popup if the widget is hidden or unavailable.
 
 ## Supported Browsers
@@ -77,6 +77,7 @@ Common install symptoms:
 
 - Badge does not change: verify the current tab is one of the supported hosts and reload the extension.
 - Popup opens but all counts are zero: send a new prompt after the extension is loaded; historical prompts are not backfilled.
+- API proxy looks too low or says unpriced: the popup only has prompt counts, not real token usage. Unknown or unsupported model names are not charged with a fake fallback price.
 - Helium still references `/Users/madan/Code/gptandme`: remove the stale entry and load the correct repo path.
 - OpenAI platform pages do not count: this is expected; only ChatGPT chat hosts are supported.
 - Old counts live under another extension ID: export CSV from the old popup if possible, then use **Import CSV** in the current popup to merge those rows.
