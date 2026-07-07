@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "ChatGPT Query Counter",
-  "version": "1.2.0",
+  "version": "1.2.2",
   "description": "Counts prompts you send to supported AI chat sites and stores usage locally.",
   "permissions": ["storage", "webRequest", "activeTab", "alarms"],
   "host_permissions": [
