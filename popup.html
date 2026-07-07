@@ -4,8 +4,55 @@
     <meta charset="utf-8" />
     <title>Query Counter</title>
     <style>
+      :root {
+        color-scheme: light;
+        --bg: #ffffff;
+        --text: #172026;
+        --muted: #67717c;
+        --section: #5f6b76;
+        --surface: #f6f8fa;
+        --surface-hover: #eef1f4;
+        --border: #d8dee4;
+        --accent: #2563eb;
+        --danger: #9f1239;
+        --pill-ok-bg: #eef7f1;
+        --pill-ok-border: #cfe9d8;
+        --pill-ok-text: #166534;
+        --pill-warn-bg: #fff7ed;
+        --pill-warn-border: #fed7aa;
+        --pill-warn-text: #7c2d12;
+        --pill-neutral-bg: #f3f4f6;
+        --pill-neutral-border: #d1d5db;
+        --pill-neutral-text: #4b5563;
+      }
+
+      @media (prefers-color-scheme: dark) {
+        :root {
+          color-scheme: dark;
+          --bg: #0f1419;
+          --text: #e6edf3;
+          --muted: #9aa6b2;
+          --section: #c2ccd6;
+          --surface: #161b22;
+          --surface-hover: #1f2630;
+          --border: #30363d;
+          --accent: #5b8cff;
+          --danger: #ff6b8a;
+          --pill-ok-bg: #0f2a1b;
+          --pill-ok-border: #235c37;
+          --pill-ok-text: #7ee787;
+          --pill-warn-bg: #2d1f10;
+          --pill-warn-border: #7c4a03;
+          --pill-warn-text: #f2cc60;
+          --pill-neutral-bg: #1f2630;
+          --pill-neutral-border: #3b4654;
+          --pill-neutral-text: #c2ccd6;
+        }
+      }
+
       body {
-        color: #172026;
+        background: var(--bg);
+        color: var(--text);
         font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial;
         margin: 14px;
         width: 286px;
@@ -14,36 +61,53 @@
       a { color: inherit; }
       .header { align-items: center; display: flex; justify-content: space-between; margin-bottom: 10px; }
       .pill {
-        background: #eef7f1;
-        border: 1px solid #cfe9d8;
+        background: var(--pill-neutral-bg);
+        border: 1px solid var(--pill-neutral-border);
         border-radius: 999px;
-        color: #166534;
+        color: var(--pill-neutral-text);
         font-size: 11px;
         font-weight: 700;
         padding: 3px 7px;
       }
+      .pill.supported {
+        background: var(--pill-ok-bg);
+        border-color: var(--pill-ok-border);
+        color: var(--pill-ok-text);
+      }
+      .pill.unsupported {
+        background: var(--pill-warn-bg);
+        border-color: var(--pill-warn-border);
+        color: var(--pill-warn-text);
+      }
+      .pill.unknown {
+        background: var(--pill-neutral-bg);
+        border-color: var(--pill-neutral-border);
+        color: var(--pill-neutral-text);
+      }
       .row { align-items: center; display: flex; justify-content: space-between; gap: 12px; margin: 7px 0; }
+      .row > div:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
       .value { flex-shrink: 0; font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
-      .section-title { color: #5f6b76; font-size: 12px; font-weight: 700; margin: 12px 0 5px; }
-      .muted { color: #67717c; font-size: 12px; line-height: 1.35; margin-top: 8px; }
+      .section-title { color: var(--section); font-size: 12px; font-weight: 700; margin: 12px 0 5px; }
+      .muted { color: var(--muted); font-size: 12px; line-height: 1.35; margin-top: 8px; }
+      .cost-note { margin: -2px 0 7px; }
       .setting { align-items: center; display: flex; gap: 8px; margin: 8px 0; }
       .setting input { margin: 0; }
       button {
-        background: #f6f8fa;
-        border: 1px solid #d8dee4;
+        background: var(--surface);
+        border: 1px solid var(--border);
         border-radius: 7px;
-        color: #172026;
+        color: var(--text);
         cursor: pointer;
         font: inherit;
         font-size: 12px;
         padding: 6px 8px;
       }
-      button:hover { background: #eef1f4; }
+      button:hover { background: var(--surface-hover); }
       .button-row { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 10px; }
-      .danger { color: #9f1239; }
+      .danger { color: var(--danger); }
       .sparkline {
         align-items: end;
-        border-bottom: 1px solid #d8dee4;
+        border-bottom: 1px solid var(--border);
         display: grid;
         gap: 3px;
         grid-template-columns: repeat(7, 1fr);
@@ -51,19 +115,19 @@
         margin: 6px 0 3px;
       }
       .bar {
-        background: #2563eb;
+        background: var(--accent);
         border-radius: 3px 3px 0 0;
         min-height: 2px;
       }
       .models .row { margin: 5px 0; }
       .status-grid {
-        background: #f6f8fa;
-        border: 1px solid #d8dee4;
+        background: var(--surface);
+        border: 1px solid var(--border);
         border-radius: 7px;
         padding: 7px 8px;
       }
       .status-grid .row { margin: 4px 0; }
-      .status-grid .label { color: #5f6b76; }
+      .status-grid .label { color: var(--section); }
       #importCsvInput { display: none; }
     </style>
   </head>
@@ -79,7 +143,8 @@
     <div class="row"><div>Last 24h</div><div id="last24" class="value">0</div></div>
     <div class="row"><div>Streak</div><div id="streak" class="value">0 days</div></div>
     <div class="row"><div>Total</div><div id="total" class="value">0</div></div>
-    <div class="row"><div>Est. today</div><div id="cost" class="value">$0.000</div></div>
+    <div class="row"><div>API proxy</div><div id="cost" class="value">Unpriced</div></div>
+    <div id="costNote" class="muted cost-note">API proxy; real billing needs token usage.</div>
     <div class="row"><div>Sessions</div><div id="sessions" class="value">0</div></div>
 
     <div class="section-title">Last 7 Days</div>
