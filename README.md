@@ -1,8 +1,8 @@
-# GPTandme
+# GPTandME
 
-GPTandme is a Manifest V3 browser extension that counts prompts sent from supported AI chat sites and stores the counts locally in the browser.
+GPTandME is a Manifest V3 browser extension that counts prompts sent from supported AI chat sites and stores the counts locally in the browser.
 
-## v1.2.2 Surfaces
+## v1.2.3 Surfaces
 
 - Extension badge: shows today's prompt count.
 - Extension popup: shows today, week, month, last 24 hours, streak, total, an OpenAI API cost proxy, sessions, model breakdown, diagnostics, CSV import/export, and reset controls.
@@ -16,7 +16,7 @@ GPTandme is a Manifest V3 browser extension that counts prompts sent from suppor
 
 ## Supported Hosts
 
-GPTandme only runs on these chat hosts:
+GPTandME only runs on these chat hosts:
 
 - ChatGPT: `chatgpt.com`, `chat.openai.com`
 - Claude: `claude.ai`
@@ -59,14 +59,14 @@ After reload, send one prompt on a supported host and confirm the badge incremen
 Use the popup diagnostics panel first:
 
 1. Open a supported chat host.
-2. Open the GPTandme extension popup.
+2. Open the GPTandME extension popup.
 3. Check **Diagnostics** for version, status, current-site support, last-counted time, and any last reason.
 4. Use the **In-page counter** toggle to confirm whether the optional page widget is enabled.
 
 Then use the browser extensions diagnostics if the popup still does not explain the issue:
 
 1. Open `chrome://extensions` or the equivalent extensions page for your browser.
-2. Find **GPTandme** / **ChatGPT Query Counter**.
+2. Find **GPTandME**.
 3. Check that the extension is enabled and loaded from `/Users/madan/Code/ai-tools/gptandme`.
 4. Open **Details** and inspect **Errors** for content-script, service-worker, or permission failures.
 5. Open **Inspect views** / **service worker** to watch background logs while sending a test prompt.
@@ -97,4 +97,4 @@ npm run build
 
 ## Privacy
 
-GPTandme is local-only. It does not send prompt counts, model names, session stats, host data, request data, or browsing data to any server. Counts stay in `chrome.storage.local` unless you manually export a CSV from the popup.
+GPTandME is local-only. It does not send prompt counts, model names, session stats, host data, request data, or browsing data to any server. Counts stay in `chrome.storage.local` unless you manually export a CSV from the popup.

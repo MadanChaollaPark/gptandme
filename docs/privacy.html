@@ -11,19 +11,19 @@
         --text: #222222;
         --link: #1d4ed8;
       }
-      @media (prefers-color-scheme: dark) {
-        :root {
-          color-scheme: dark;
-          --bg: #0f1419;
-          --text: #e6edf3;
-          --link: #8ab4ff;
-        }
+      body {
+        background: var(--bg);
+        color: var(--text);
+        font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+        line-height: 1.6;
+        margin: 40px auto;
+        max-width: 720px;
+        padding: 0 20px;
       }
-      body { background: var(--bg); color: var(--text); font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; max-width: 600px; margin: 40px auto; padding: 0 20px; line-height: 1.6; }
       a { color: var(--link); }
-      h1 { font-size: 22px; }
-      h2 { font-size: 16px; margin-top: 24px; }
-      p, li { font-size: 14px; }
+      h1 { font-size: 24px; }
+      h2 { font-size: 17px; margin-top: 24px; }
+      p, li { font-size: 15px; }
     </style>
   </head>
   <body>
@@ -31,37 +31,37 @@
     <p><strong>GPTandME</strong></p>
     <p>Last updated: 2026-07-08</p>
 
-    <h2>Data collection</h2>
-    <p>This extension does <strong>not</strong> collect, transmit, sell, or share personal information. It does not send data to any server and does not use analytics, advertising, or tracking services.</p>
+    <h2>Data Collection</h2>
+    <p>This extension does not collect, transmit, sell, or share personal information. It does not send data to any server and does not use analytics, advertising, or tracking services.</p>
 
-    <h2>Data storage</h2>
+    <h2>Data Storage</h2>
     <p>All usage data is stored locally on your device using the Chrome Storage API. This includes prompt counts, daily/weekly/monthly totals, model-count summaries when available, hourly/session statistics, non-sensitive diagnostics such as the last counted time/source and last supported host, and local preferences such as the in-page counter setting. No data leaves your browser unless you manually export a CSV file from the popup.</p>
 
-    <h2>Extension surfaces</h2>
+    <h2>Extension Surfaces</h2>
     <p>Version 1.2.3 exposes local usage information through the extension badge, the extension popup, and an optional in-page widget/counter on supported chat hosts. The popup may show a local OpenAI API cost proxy based on prompt-count assumptions; it is not actual billing data. The widget is optional; the badge and popup remain the primary supported surfaces.</p>
 
-    <h2>Supported hosts</h2>
+    <h2>Supported Hosts</h2>
     <p>The extension only runs on supported AI chat hosts: chatgpt.com, chat.openai.com, claude.ai, gemini.google.com, perplexity.ai, and www.perplexity.ai. It does not run on OpenAI platform, API, billing, help, documentation, or unrelated web pages.</p>
 
     <h2>Permissions</h2>
     <ul>
-      <li><strong>storage</strong> — used to save your prompt counts locally.</li>
-      <li><strong>webRequest</strong> — used locally for ChatGPT request detection so user-sent prompts can be counted more reliably.</li>
-      <li><strong>activeTab</strong> — used only when you open the popup so it can label whether the current tab is a supported host.</li>
-      <li><strong>alarms</strong> — used locally to refresh the badge count after date changes while the browser is running.</li>
-      <li><strong>host_permissions</strong> — limited to chatgpt.com, chat.openai.com, claude.ai, gemini.google.com, perplexity.ai, and www.perplexity.ai so the content script can detect user sends on supported chat sites.</li>
+      <li><strong>storage</strong> is used to save your prompt counts locally.</li>
+      <li><strong>webRequest</strong> is used locally for ChatGPT request detection so user-sent prompts can be counted more reliably.</li>
+      <li><strong>activeTab</strong> is used only when you open the popup so it can label whether the current tab is a supported host.</li>
+      <li><strong>alarms</strong> is used locally to refresh the badge count after date changes while the browser is running.</li>
+      <li><strong>host permissions</strong> are limited to chatgpt.com, chat.openai.com, claude.ai, gemini.google.com, perplexity.ai, and www.perplexity.ai so the content script can detect user sends on supported chat sites.</li>
     </ul>
 
-    <h2>Third-party services</h2>
+    <h2>Third-Party Services</h2>
     <p>This extension does not integrate with any third-party analytics, advertising, or tracking services.</p>
 
-    <h2>Limited use</h2>
+    <h2>Limited Use</h2>
     <p>The use of information received from Google APIs will adhere to the Chrome Web Store User Data Policy, including the Limited Use requirements.</p>
 
-    <h2>User control</h2>
+    <h2>User Control</h2>
     <p>You can reset your counts at any time using the "Reset today" or "Reset all" buttons in the popup. You can also export or import a local CSV manually. Uninstalling the extension removes the locally stored extension data from the browser profile.</p>
 
     <h2>Contact</h2>
-    <p>Questions or concerns? Visit <a href="https://madanchaollapark.github.io/gptandme/support.html">GPTandME support</a>.</p>
+    <p>Questions or concerns? Visit <a href="./support.html">GPTandME support</a>.</p>
   </body>
 </html>

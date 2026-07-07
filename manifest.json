@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
-  "name": "ChatGPT Query Counter",
-  "version": "1.2.2",
+  "name": "GPTandME",
+  "version": "1.2.3",
   "description": "Counts prompts you send to supported AI chat sites and stores usage locally.",
   "permissions": ["storage", "webRequest", "activeTab", "alarms"],
   "host_permissions": [
@@ -17,7 +17,7 @@
   },
   "action": {
     "default_popup": "popup.html",
-    "default_title": "Query count"
+    "default_title": "GPTandME"
   },
   "icons": {
     "16": "icons/icon16.png",
