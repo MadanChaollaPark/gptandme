@@ -8,6 +8,17 @@ const siteEntry = matchedSiteEntry || [location.hostname, { sendButtons: [] }];
 const [siteName, siteConfig] = siteEntry;
 const countDomEvents = !siteConfig.countViaNetwork || siteConfig.domFallback;
 
+function rememberCurrentSite() {
+  if (!matchedSiteEntry) return;
+  chrome.storage?.local?.set?.({
+    lastSeenAt: new Date().toISOString(),
+    lastSeenSite: siteName,
+  });
+}
+
+rememberCurrentSite();
+window.addEventListener?.('pageshow', rememberCurrentSite);
+
 // ---------- MODEL DETECTION ----------
 
 // Best signal: intercept ChatGPT fetches to learn the model from the request.
