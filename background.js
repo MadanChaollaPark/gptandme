@@ -19,6 +19,8 @@ const STORAGE_DEFAULTS = {
   lastCountSite: null,
   lastCountModel: null,
   lastCountSessionId: null,
+  lastSeenAt: null,
+  lastSeenSite: null,
   extensionVersion: null,
   showPageCounter: true,
   lastIncrementKey: null,
@@ -115,6 +117,8 @@ function normalizeStoredData(data = {}) {
     lastCountSite: data.lastCountSite || null,
     lastCountModel: data.lastCountModel || null,
     lastCountSessionId: data.lastCountSessionId || null,
+    lastSeenAt: data.lastSeenAt || null,
+    lastSeenSite: data.lastSeenSite || null,
     extensionVersion: data.extensionVersion || extensionVersion(),
     showPageCounter: data.showPageCounter !== false,
     lastIncrementKey: data.lastIncrementKey || null,
@@ -123,13 +127,16 @@ function normalizeStoredData(data = {}) {
 }
 
 function countDiagnostics({ countedAt, reason, site, model, sessionId }) {
+  const normalizedSite = siteForDiagnostics(site);
   return {
     storageSchemaVersion: STORAGE_SCHEMA_VERSION,
     lastCountedAt: countedAt,
     lastCountReason: safeString(reason),
-    lastCountSite: siteForDiagnostics(site),
+    lastCountSite: normalizedSite,
     lastCountModel: safeString(model),
     lastCountSessionId: safeString(sessionId),
+    lastSeenAt: countedAt,
+    lastSeenSite: normalizedSite,
     extensionVersion: extensionVersion(),
   };
 }
