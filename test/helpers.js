@@ -331,6 +331,7 @@ function createPopupScriptHarness(storageData = {}) {
     'streak',
     'total',
     'cost',
+    'costNote',
     'sessions',
     'modelSection',
     'modelBreakdown',
@@ -352,6 +353,16 @@ function createPopupScriptHarness(storageData = {}) {
   const revokedUrls = [];
   const sets = [];
   let nextUrlId = 0;
+  class TestURL extends URL {}
+  TestURL.createObjectURL = function createObjectURL(blob) {
+    const url = `blob:test-${nextUrlId}`;
+    nextUrlId += 1;
+    objectUrls.set(url, blob);
+    return url;
+  };
+  TestURL.revokeObjectURL = function revokeObjectURL(url) {
+    revokedUrls.push(url);
+  };
 
   const sandbox = {
     GptAndMeShared: shared,
@@ -362,17 +373,7 @@ function createPopupScriptHarness(storageData = {}) {
         this.text = parts.join('');
       }
     },
-    URL: {
-      createObjectURL(blob) {
-        const url = `blob:test-${nextUrlId}`;
-        nextUrlId += 1;
-        objectUrls.set(url, blob);
-        return url;
-      },
-      revokeObjectURL(url) {
-        revokedUrls.push(url);
-      },
-    },
+    URL: TestURL,
     document,
     chrome: {
       runtime: {
@@ -405,7 +406,10 @@ function createPopupScriptHarness(storageData = {}) {
       },
       tabs: {
         query(query, callback) {
-          callback([{ url: storageData.activeTabUrl || 'https://chatgpt.com/' }]);
+          const url = Object.hasOwn(storageData, 'activeTabUrl')
+            ? storageData.activeTabUrl
+            : 'https://chatgpt.com/';
+          callback([{ url }]);
         },
       },
     },
