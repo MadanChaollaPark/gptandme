@@ -31,11 +31,14 @@
     <p><strong>GPTandME</strong></p>
     <p>Last updated: 2026-07-08</p>
 
-    <h2>Data collection</h2>
-    <p>This extension does <strong>not</strong> collect, transmit, sell, or share personal information. It does not send data to any server and does not use analytics, advertising, or tracking services.</p>
+    <h2>Local data handling</h2>
+    <p>This extension handles usage data locally in your browser so it can count prompts and show usage statistics. It does <strong>not</strong> transmit, sell, or share user data. It does not send data to any server and does not use analytics, advertising, or tracking services.</p>
 
     <h2>Data storage</h2>
     <p>All usage data is stored locally on your device using the Chrome Storage API. This includes prompt counts, daily/weekly/monthly totals, model-count summaries when available, hourly/session statistics, non-sensitive diagnostics such as the last counted time/source and last supported host, and local preferences such as the in-page counter setting. No data leaves your browser unless you manually export a CSV file from the popup.</p>
+
+    <h2>Prompt content</h2>
+    <p>For ChatGPT only, the extension may inspect outgoing request data locally to confirm that a request contains user input and to read the selected model label. The extension does not store prompt text or send prompt text anywhere.</p>
 
     <h2>Extension surfaces</h2>
     <p>Version 1.2.3 exposes local usage information through the extension badge, the extension popup, and an optional in-page widget/counter on supported chat hosts. The popup may show a local OpenAI API cost proxy based on prompt-count assumptions; it is not actual billing data. The widget is optional; the badge and popup remain the primary supported surfaces.</p>
