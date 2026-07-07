@@ -1,19 +1,29 @@
 // Tests for feat/cost-estimation
 const { describe, it } = require('node:test');
 const assert = require('node:assert/strict');
-const { estimateCost, getModelCountsForDate, PRICE_PER_PROMPT } = require('./helpers');
+const {
+  DEFAULT_PROMPT_TOKEN_ESTIMATE,
+  PRICE_PER_PROMPT,
+  displayModelName,
+  estimateCost,
+  estimateCostDetails,
+  getModelCountsForDate,
+  normalizeModelName,
+  priceForModel,
+} = require('./helpers');
 
 describe('PRICE_PER_PROMPT', () => {
-  it('has an unknown fallback price', () => {
-    assert.ok(PRICE_PER_PROMPT['unknown'] > 0);
-  });
-
-  it('includes all expected models', () => {
+  it('includes current OpenAI API proxy models', () => {
     const expected = [
-      'gpt-4o', 'gpt-4o-mini', 'gpt-4.5', 'gpt-4',
-      'o1', 'o1-mini', 'o3', 'o3-mini',
-      'claude-sonnet', 'claude-opus', 'claude-haiku',
-      'gemini-flash', 'gemini-pro',
+      'gpt-5.5-pro',
+      'gpt-5.5',
+      'gpt-5.4-pro',
+      'gpt-5.4',
+      'gpt-5.4-mini',
+      'gpt-5.4-nano',
+      'gpt-5.3-codex',
+      'gpt-5',
+      'chat-latest',
     ];
     for (const model of expected) {
       assert.ok(model in PRICE_PER_PROMPT, `Missing price for ${model}`);
@@ -25,6 +35,11 @@ describe('PRICE_PER_PROMPT', () => {
       assert.ok(typeof price === 'number' && price > 0, `${model} price should be positive`);
     }
   });
+
+  it('does not assign a fake fallback price to unknown models', () => {
+    assert.equal(priceForModel('unknown'), null);
+    assert.equal(priceForModel('future-model-x'), null);
+  });
 });
 
 describe('estimateCost', () => {
@@ -32,26 +47,35 @@ describe('estimateCost', () => {
     assert.equal(estimateCost({}), 0);
   });
 
-  it('calculates cost for a single known model', () => {
-    const cost = estimateCost({ 'gpt-4o': 10 });
-    assert.equal(cost, 10 * 0.02);
+  it('calculates cost from the token-rate proxy for a single known model', () => {
+    const cost = estimateCost({ 'gpt-5.5': 10 });
+    const expectedUnit = (
+      DEFAULT_PROMPT_TOKEN_ESTIMATE.input * 5 +
+      DEFAULT_PROMPT_TOKEN_ESTIMATE.output * 30
+    ) / 1_000_000;
+    assert.equal(cost, 10 * expectedUnit);
   });
 
-  it('sums costs across multiple models', () => {
-    const cost = estimateCost({ 'gpt-4o': 5, 'o3-mini': 10 });
-    const expected = 5 * 0.02 + 10 * 0.01;
+  it('sums costs across multiple priced models', () => {
+    const cost = estimateCost({ 'gpt-5.5': 5, 'gpt-5.3-codex': 10 });
+    const expected = 5 * PRICE_PER_PROMPT['gpt-5.5'] + 10 * PRICE_PER_PROMPT['gpt-5.3-codex'];
     assert.equal(cost, expected);
   });
 
-  it('falls back to unknown price for unrecognized models', () => {
-    const cost = estimateCost({ 'future-model-x': 3 });
-    assert.equal(cost, 3 * PRICE_PER_PROMPT['unknown']);
+  it('normalizes GPT-5.5 slug variants before pricing', () => {
+    assert.equal(normalizeModelName('gpt-5-5-pro'), 'gpt-5.5-pro');
+    assert.equal(displayModelName('openai/gpt-5-5-pro'), 'gpt-5.5-pro');
+    assert.equal(priceForModel('gpt-5-5-pro'), PRICE_PER_PROMPT['gpt-5.5-pro']);
   });
 
-  it('mixes known and unknown models', () => {
-    const cost = estimateCost({ 'claude-opus': 2, 'mystery': 1 });
-    const expected = 2 * 0.08 + 1 * PRICE_PER_PROMPT['unknown'];
-    assert.equal(cost, expected);
+  it('reports unpriced counts instead of silently charging the unknown fallback', () => {
+    const details = estimateCostDetails({ 'gpt-5-5-pro': 7, unknown: 5 });
+
+    assert.equal(details.total, 7 * PRICE_PER_PROMPT['gpt-5.5-pro']);
+    assert.equal(details.pricedCount, 7);
+    assert.equal(details.unpricedCount, 5);
+    assert.equal(details.models['gpt-5-5-pro'].normalizedModel, 'gpt-5.5-pro');
+    assert.equal(details.models.unknown.priced, false);
   });
 });
 
