@@ -6,7 +6,8 @@ const shared = typeof GptAndMeShared !== 'undefined'
 
 const {
   buildUsageCsv,
-  estimateCost,
+  displayModelName,
+  estimateCostDetails,
   getMonthTotal,
   getModelCountsForDate,
   getRecentDays,
@@ -34,6 +35,8 @@ const STORAGE_DEFAULTS = {
   lastCountSite: null,
   lastCountModel: null,
   lastCountSessionId: null,
+  lastSeenAt: null,
+  lastSeenSite: null,
   extensionVersion: null,
   storageSchemaVersion: null,
   lastIncrementKey: null,
@@ -46,12 +49,38 @@ const CLEARED_DIAGNOSTICS = {
   lastCountSite: null,
   lastCountModel: null,
   lastCountSessionId: null,
+  lastSeenAt: null,
+  lastSeenSite: null,
   lastIncrementKey: null,
   lastIncrementAt: 0,
 };
 
 function formatCost(cost) {
   return `$${cost.toFixed(cost < 1 ? 3 : 2)}`;
+}
+
+function formatCostSummary(details = {}) {
+  if (!details.pricedCount) return 'Unpriced';
+  return `~${formatCost(Number(details.total || 0))}`;
+}
+
+function pluralize(count, singular, plural = `${singular}s`) {
+  return `${count} ${count === 1 ? singular : plural}`;
+}
+
+function formatCostNote(details = {}) {
+  const input = details.assumedInputTokens || 0;
+  const output = details.assumedOutputTokens || 0;
+  if (!details.modelCount) return 'API proxy; real billing needs token usage.';
+
+  const parts = [
+    `${pluralize(details.pricedCount || 0, 'send')} priced`,
+  ];
+  if (details.unpricedCount) {
+    parts.push(`${pluralize(details.unpricedCount, 'send')} unpriced`);
+  }
+  parts.push(`${input} in + ${output} out tokens/send.`);
+  return parts.join('. ');
 }
 
 function setText(id, value) {
@@ -89,6 +118,7 @@ function formatReason(reason) {
     network: 'Network',
     'content-tick': 'Page event',
     'dom-event': 'Page event',
+    stored: 'Recorded',
   };
   return labels[reason] || reason || 'None';
 }
@@ -136,17 +166,21 @@ function normalizeLastCounted(storageData = {}, backgroundStatus = null) {
 
   const latestSession = getLatestSessionActivity(storageData.sessions);
   if (!latestSession) return null;
-  return { at: latestSession.at, reason: '' };
+  return { at: latestSession.at, reason: 'stored' };
+}
+
+function unavailableSiteInfo() {
+  return { supported: null, host: '', site: '', label: 'Unavailable' };
 }
 
 function findSupportedSite(url) {
-  if (!url) return { supported: null, host: '', site: '', label: 'Unavailable' };
+  if (!url) return unavailableSiteInfo();
 
   let parsed;
   try {
     parsed = new URL(url);
   } catch (_) {
-    return { supported: null, host: '', site: '', label: 'Unavailable' };
+    return unavailableSiteInfo();
   }
 
   const host = parsed.hostname;
@@ -159,6 +193,17 @@ function findSupportedSite(url) {
     host,
     site,
     label: `${fallbackLabel} ${supported ? 'supported' : 'unsupported'}`,
+  };
+}
+
+function findStoredSite(data = {}) {
+  const site = data.lastSeenSite || data.lastCountSite || '';
+  if (!site) return unavailableSiteInfo();
+  const info = findSupportedSite(site.includes('://') ? site : `https://${site}/`);
+  if (!info.host) return unavailableSiteInfo();
+  return {
+    ...info,
+    label: `Last seen ${info.host}`,
   };
 }
 
@@ -227,7 +272,9 @@ function updateModelBreakdown(data, todayDate) {
       row.className = 'row';
 
       const label = document.createElement('div');
-      label.textContent = model;
+      const displayName = displayModelName(model);
+      label.textContent = displayName;
+      if (displayName !== model) label.title = `stored as ${model}`;
 
       const value = document.createElement('div');
       value.className = 'value';
@@ -246,31 +293,34 @@ function applySiteStatus(siteInfo) {
   const supported = siteInfo.supported === true;
   const unsupported = siteInfo.supported === false;
   const statusEl = document.getElementById('statusValue');
+  const statusClass = supported ? 'supported' : unsupported ? 'unsupported' : 'unknown';
 
   setText('currentSite', siteInfo.label);
   setText('statusValue', supported ? 'Supported' : unsupported ? 'Unsupported' : 'Unknown');
   if (!statusEl) return;
-  statusEl.style.color = supported ? '#166534' : '#7c2d12';
-  statusEl.style.background = supported ? '#eef7f1' : '#fff7ed';
-  statusEl.style.borderColor = supported ? '#cfe9d8' : '#fed7aa';
+  statusEl.className = `pill ${statusClass}`;
 }
 
 function updateActiveTabStatus() {
   if (!chrome.tabs?.query) {
-    chrome.storage?.local?.get?.({ activeTabUrl: null }, (data) => {
-      applySiteStatus(data.activeTabUrl ? findSupportedSite(data.activeTabUrl) : {
-        supported: null,
-        host: '',
-        site: '',
-        label: 'Unavailable',
-      });
+    chrome.storage?.local?.get?.({ activeTabUrl: null, lastSeenSite: null, lastCountSite: null }, (data) => {
+      const direct = data.activeTabUrl ? findSupportedSite(data.activeTabUrl) : unavailableSiteInfo();
+      applySiteStatus(direct.supported === null ? findStoredSite(data) : direct);
     });
     return;
   }
 
   chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
     const tab = tabs?.[0];
-    applySiteStatus(findSupportedSite(tab?.url));
+    const direct = findSupportedSite(tab?.url);
+    if (direct.supported !== null) {
+      applySiteStatus(direct);
+      return;
+    }
+
+    chrome.storage?.local?.get?.({ lastSeenSite: null, lastCountSite: null }, (data) => {
+      applySiteStatus(findStoredSite(data));
+    });
   });
 }
 
@@ -281,14 +331,16 @@ function updateDisplay() {
     const todayModels = getModelCountsForDate(data.byDate, data.byModel, todayDate);
     const sessionStats = getSessionStats(data.sessions);
     const recentHours = getRecentHours(data.byHour, 24);
+    const costDetails = estimateCostDetails(todayModels);
 
     setText('today', today);
     setText('week', getWeekTotal(data.byDate));
     setText('month', getMonthTotal(data.byDate));
     setText('last24', recentHours.reduce((sum, count) => sum + Number(count || 0), 0));
     setText('streak', `${getStreak(data.byDate)} days`);
-    setText('total', data.total || sumCounts(data.byDate));
-    setText('cost', formatCost(estimateCost(todayModels)));
+    setText('total', sumCounts(data.byDate));
+    setText('cost', formatCostSummary(costDetails));
+    setText('costNote', formatCostNote(costDetails));
     setText('sessions', `${sessionStats.count} (${sessionStats.avg} avg, ${sessionStats.max} max)`);
     renderDiagnostics(data);
 
@@ -360,7 +412,9 @@ function startPopup() {
         changes.sessions ||
         changes.showPageCounter ||
         changes.lastCountedAt ||
-        changes.lastCountReason
+        changes.lastCountReason ||
+        changes.lastSeenSite ||
+        changes.lastSeenAt
       )
     ) {
       updateDisplay();
