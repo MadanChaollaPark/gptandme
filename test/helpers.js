@@ -148,7 +148,8 @@ class TestElement {
     return this.querySelectorAll(selector)[0] || null;
   }
 
-  attachShadow() {
+  attachShadow(options = {}) {
+    this.shadowMode = options.mode || 'open';
     this.shadowRoot = new TestElement('#shadow-root');
     this.shadowRoot.ownerDocument = this.ownerDocument;
     return this.shadowRoot;
@@ -248,11 +249,14 @@ function createContentScriptHarness(options = {}) {
     pathname = '/chat/test-thread',
     href = `https://${hostname}${pathname}`,
     storageData = null,
+    deferTimers = false,
   } = options;
   const document = createTestDocument();
   const messages = [];
   const windowListeners = new Map();
   const storageChangeListeners = [];
+  const timers = new Map();
+  let nextTimerId = 1;
   let now = 1000;
   const chrome = {
     runtime: {
@@ -303,6 +307,18 @@ function createContentScriptHarness(options = {}) {
     chrome,
   };
 
+  if (deferTimers) {
+    sandbox.setTimeout = (callback) => {
+      const id = nextTimerId;
+      nextTimerId += 1;
+      timers.set(id, callback);
+      return id;
+    };
+    sandbox.clearTimeout = (id) => {
+      timers.delete(id);
+    };
+  }
+
   runScript('content.js', sandbox);
 
   return {
@@ -313,6 +329,14 @@ function createContentScriptHarness(options = {}) {
     },
     dispatch(type, event) {
       document.dispatch(type, event);
+    },
+    emitWindowEvent(type, event) {
+      for (const callback of windowListeners.get(type) || []) callback(event);
+    },
+    runTimers() {
+      const callbacks = [...timers.values()];
+      timers.clear();
+      for (const callback of callbacks) callback();
     },
     emitStorageChange(changes, namespace = 'local') {
       for (const callback of storageChangeListeners) {
@@ -335,6 +359,8 @@ function createPopupScriptHarness(storageData = {}) {
     'sessions',
     'modelSection',
     'modelBreakdown',
+    'providerSection',
+    'providerBreakdown',
     'sparkline',
     'statusValue',
     'currentSite',
@@ -352,6 +378,7 @@ function createPopupScriptHarness(storageData = {}) {
   const objectUrls = new Map();
   const revokedUrls = [];
   const sets = [];
+  const runtimeMessages = [];
   let nextUrlId = 0;
   class TestURL extends URL {}
   TestURL.createObjectURL = function createObjectURL(blob) {
@@ -381,9 +408,19 @@ function createPopupScriptHarness(storageData = {}) {
           return { version: 'test-version' };
         },
         sendMessage(message, callback) {
+          runtimeMessages.push(message);
           if (message.type === 'importData') {
             Object.assign(storageData, message.payload.data);
             callback?.({ ok: true, import: { total: storageData.total || 0 } });
+            return;
+          }
+          if (message.type === 'importUsage') {
+            Object.assign(storageData, shared.mergeUsageData(storageData, message.data));
+            callback?.({ ok: true, import: { total: storageData.total || 0 } });
+            return;
+          }
+          if (message.type === 'resetToday' || message.type === 'resetAll') {
+            callback?.({ ok: true, reset: { total: 0 } });
             return;
           }
           callback?.({ ok: false, error: 'unknown message' });
@@ -421,6 +458,7 @@ function createPopupScriptHarness(storageData = {}) {
     document,
     objectUrls,
     revokedUrls,
+    runtimeMessages,
     sets,
     fireDOMContentLoaded() {
       document.dispatch('DOMContentLoaded');

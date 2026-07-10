@@ -20,9 +20,11 @@ function composer(options = {}) {
     sendAttributes = { 'aria-label': 'Send message' },
     sendOptions = {},
     busyAttributes = null,
+    inputText = 'Hello from the test composer',
   } = options;
   const form = new TestElement('form');
   const input = new TestElement('textarea');
+  input.textContent = inputText;
   const send = new TestElement('button', sendAttributes, sendOptions);
 
   form.append(input, send);
@@ -43,13 +45,16 @@ describe('content send gating', () => {
 
     harness.dispatch('keydown', fakeEnterEvent(input));
 
-    assert.deepEqual(JSON.parse(JSON.stringify(harness.messages)), [{
-      type: 'tick',
-      model: 'unknown',
-      site: 'claude.ai',
-      sessionId: 'claude.ai:/chat/test-thread',
-      reason: 'dom-event',
-    }]);
+    assert.equal(harness.messages.length, 1);
+    const [message] = JSON.parse(JSON.stringify(harness.messages));
+    assert.equal(message.type, 'tick');
+    assert.equal(message.model, 'unknown');
+    assert.equal(message.provider, 'claude');
+    assert.equal(message.site, 'claude.ai');
+    assert.equal(message.reason, 'claude-dom-fallback');
+    assert.match(message.sessionId, /^claude:page-/);
+    assert.match(message.eventId, /^claude:page-.*:send-1$/);
+    assert.doesNotMatch(message.sessionId, /test-thread|\/chat\//);
   });
 
   it('does not tick when the send button is disabled', () => {

@@ -120,6 +120,23 @@
         min-height: 2px;
       }
       .models .row { margin: 5px 0; }
+      .service-table { display: grid; gap: 5px; }
+      .service-row {
+        align-items: center;
+        display: grid;
+        gap: 8px;
+        grid-template-columns: minmax(0, 1fr) 44px 44px;
+      }
+      .service-row > :not(:first-child) {
+        font-variant-numeric: tabular-nums;
+        text-align: right;
+      }
+      .service-header {
+        color: var(--muted);
+        font-size: 10px;
+        font-weight: 700;
+        text-transform: uppercase;
+      }
       .status-grid {
         background: var(--surface);
         border: 1px solid var(--border);
@@ -149,6 +166,14 @@
 
     <div class="section-title">Last 7 Days</div>
     <div id="sparkline" class="sparkline" aria-label="Last 7 days chart"></div>
+
+    <div id="providerSection">
+      <div class="section-title">Queries by Service</div>
+      <div class="service-row service-header" aria-hidden="true">
+        <div>Service</div><div>Today</div><div>Total</div>
+      </div>
+      <div id="providerBreakdown" class="service-table"></div>
+    </div>
 
     <div id="modelSection" class="models" style="display:none;">
       <div class="section-title">Models Today</div>

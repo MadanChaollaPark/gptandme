@@ -7,7 +7,7 @@ const {
 } = require('./helpers');
 
 describe('popup CSV export', () => {
-  it('exports sorted date/model/count rows and fills legacy unknown counts', () => {
+  it('exports sorted date/provider/model/count rows and fills legacy unknown counts', () => {
     const harness = createPopupScriptHarness({
       byDate: {
         '2026-01-02': 3,
@@ -28,10 +28,10 @@ describe('popup CSV export', () => {
       download: 'gptandme-usage.csv',
     });
     assert.equal(harness.lastDownloadText(), [
-      'date,model,count',
-      '2026-01-01,unknown,1',
-      '2026-01-02,gpt-4o,2',
-      '2026-01-02,unknown,1',
+      'date,provider,model,count',
+      '2026-01-01,unknown,unknown,1',
+      '2026-01-02,unknown,gpt-4o,2',
+      '2026-01-02,unknown,unknown,1',
     ].join('\n'));
     assert.deepEqual(harness.revokedUrls, ['blob:test-0']);
   });
@@ -54,10 +54,10 @@ describe('popup CSV export', () => {
     harness.click('downloadCsv');
 
     const csv = harness.lastDownloadText();
-    assert.match(csv, /^date,model,count\n/);
-    assert.match(csv, /2026-02-03,"comma,model",1/);
-    assert.match(csv, /2026-02-03,"quote ""model""",1/);
-    assert.match(csv, /2026-02-03,"line\nbreak",1/);
+    assert.match(csv, /^date,provider,model,count\n/);
+    assert.match(csv, /2026-02-03,unknown,"comma,model",1/);
+    assert.match(csv, /2026-02-03,unknown,"quote ""model""",1/);
+    assert.match(csv, /2026-02-03,unknown,"line\nbreak",1/);
   });
 });
 
@@ -117,6 +117,10 @@ describe('CSV parsing helpers', () => {
       byModel: {
         '2026-02-03': { 'gpt-4o': 3, unknown: 2 },
         '2026-02-04': { 'o3-mini': 1 },
+      },
+      byProviderModel: {
+        '2026-02-03': { unknown: { 'gpt-4o': 3, unknown: 2 } },
+        '2026-02-04': { unknown: { 'o3-mini': 1 } },
       },
       total: 6,
     });

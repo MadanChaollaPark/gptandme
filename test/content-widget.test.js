@@ -61,7 +61,8 @@ class FakeElement {
     return this.attributes[name] || null;
   }
 
-  attachShadow() {
+  attachShadow(options = {}) {
+    this.shadowMode = options.mode || 'open';
     this.shadowRoot = new FakeShadowRoot(this.ownerDocument, this);
     this.shadowRoot.setConnected(this.isConnected);
     return this.shadowRoot;
@@ -233,6 +234,7 @@ describe('content page counter widget', () => {
 
     assert.equal(widgetHosts(document).length, 1);
     assert.equal(widgetValue(document), '7');
+    assert.equal(widgetHosts(document)[0].shadowMode, 'closed');
     assert.match(widgetHosts(document)[0].shadowRoot.textContent, /today/);
   });
 

@@ -5,18 +5,20 @@ const shared = typeof GptAndMeShared !== 'undefined'
   : (typeof module !== 'undefined' && module.exports ? require('./shared') : {});
 
 const {
+  PROVIDERS,
   buildUsageCsv,
   displayModelName,
   estimateCostDetails,
   getMonthTotal,
   getModelCountsForDate,
+  getProviderCountsForDate,
+  getProviderTotals,
   getRecentDays,
   getRecentHours,
   getSessionStats,
   getStreak,
   getWeekTotal,
   isSupportedHost,
-  mergeUsageData,
   parseUsageCsv,
   siteConfigForHost,
   sumCounts,
@@ -26,6 +28,7 @@ const {
 const STORAGE_DEFAULTS = {
   byDate: {},
   byModel: {},
+  byProviderModel: {},
   byHour: {},
   sessions: {},
   total: 0,
@@ -41,18 +44,7 @@ const STORAGE_DEFAULTS = {
   storageSchemaVersion: null,
   lastIncrementKey: null,
   lastIncrementAt: 0,
-};
-
-const CLEARED_DIAGNOSTICS = {
-  lastCountedAt: null,
-  lastCountReason: null,
-  lastCountSite: null,
-  lastCountModel: null,
-  lastCountSessionId: null,
-  lastSeenAt: null,
-  lastSeenSite: null,
-  lastIncrementKey: null,
-  lastIncrementAt: 0,
+  recentEvents: {},
 };
 
 function formatCost(cost) {
@@ -115,9 +107,13 @@ function formatTime(iso) {
 function formatReason(reason) {
   const labels = {
     'chatgpt-network': 'Network',
+    'claude-network': 'Network',
+    'perplexity-network': 'Network',
     network: 'Network',
     'content-tick': 'Page event',
     'dom-event': 'Page event',
+    'claude-dom-fallback': 'Page fallback',
+    'perplexity-dom-fallback': 'Page fallback',
     stored: 'Recorded',
   };
   return labels[reason] || reason || 'None';
@@ -289,6 +285,42 @@ function updateModelBreakdown(data, todayDate) {
   }
 }
 
+function updateProviderBreakdown(data, todayDate) {
+  const container = document.getElementById('providerBreakdown');
+  if (!container || !PROVIDERS) return;
+  const todayCounts = getProviderCountsForDate(
+    data.byDate,
+    data.byProviderModel,
+    todayDate
+  );
+  const allTimeCounts = getProviderTotals(data.byDate, data.byProviderModel);
+  const providerOrder = ['chatgpt', 'claude', 'gemini', 'perplexity', 'unknown'];
+
+  container.replaceChildren();
+  for (const provider of providerOrder) {
+    const today = Number(todayCounts[provider] || 0);
+    const total = Number(allTimeCounts[provider] || 0);
+    if (provider === 'unknown' && today === 0 && total === 0) continue;
+
+    const row = document.createElement('div');
+    row.className = 'service-row';
+
+    const label = document.createElement('div');
+    label.textContent = PROVIDERS[provider]?.label || provider;
+
+    const todayValue = document.createElement('div');
+    todayValue.textContent = String(today);
+    todayValue.setAttribute('aria-label', `${today} today`);
+
+    const totalValue = document.createElement('div');
+    totalValue.textContent = String(total);
+    totalValue.setAttribute('aria-label', `${total} total`);
+
+    row.append(label, todayValue, totalValue);
+    container.append(row);
+  }
+}
+
 function applySiteStatus(siteInfo) {
   const supported = siteInfo.supported === true;
   const unsupported = siteInfo.supported === false;
@@ -347,6 +379,7 @@ function updateDisplay() {
     const toggle = pageCounterToggle();
     if (toggle) toggle.checked = data.showPageCounter !== false;
     renderSparkline(getRecentDays(data.byDate, 7));
+    updateProviderBreakdown(data, todayDate);
     updateModelBreakdown(data, todayDate);
     requestBackgroundStatus((status) => {
       if (status) renderDiagnostics(status);
@@ -355,8 +388,10 @@ function updateDisplay() {
 }
 
 function downloadCsv() {
-  chrome.storage.local.get({ byDate: {}, byModel: {} }, (data) => {
-    const blob = new Blob([buildUsageCsv(data.byDate, data.byModel)], { type: 'text/csv' });
+  chrome.storage.local.get({ byDate: {}, byModel: {}, byProviderModel: {} }, (data) => {
+    const blob = new Blob([
+      buildUsageCsv(data.byDate, data.byModel, data.byProviderModel),
+    ], { type: 'text/csv' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -375,25 +410,14 @@ function importCsvText(text) {
     return;
   }
 
-  chrome.storage.local.get(STORAGE_DEFAULTS, (data) => {
-    const merged = mergeUsageData(data, parsed);
-    const payload = {
-      data: {
-        ...data,
-        ...merged,
-        extensionVersion: manifestVersion() || data.extensionVersion,
-      },
-    };
-
-    chrome.runtime.sendMessage({ type: 'importData', payload }, (response) => {
-      if (response?.ok) {
-        const warning = parsed.errors.length ? ` ${parsed.errors.length} row(s) skipped.` : '';
-        setText('importStatus', `Imported ${importedTotal} prompts.${warning}`);
-        updateDisplay();
-      } else {
-        setText('importStatus', response?.error || 'Import failed.');
-      }
-    });
+  chrome.runtime.sendMessage({ type: 'importUsage', data: parsed }, (response) => {
+    if (response?.ok) {
+      const warning = parsed.errors.length ? ` ${parsed.errors.length} row(s) skipped.` : '';
+      setText('importStatus', `Imported ${importedTotal} prompts.${warning}`);
+      updateDisplay();
+    } else {
+      setText('importStatus', response?.error || 'Import failed.');
+    }
   });
 }
 
@@ -408,6 +432,7 @@ function startPopup() {
         changes.byDate ||
         changes.total ||
         changes.byModel ||
+        changes.byProviderModel ||
         changes.byHour ||
         changes.sessions ||
         changes.showPageCounter ||
@@ -430,37 +455,15 @@ function startPopup() {
 
   const resetToday = document.getElementById('resetToday');
   if (resetToday) resetToday.addEventListener('click', () => {
-    chrome.storage.local.get({ byDate: {}, byModel: {}, byHour: {}, total: 0 }, (data) => {
-      const key = todayKey();
-      const todayCount = data.byDate[key] || 0;
-      const newByDate = { ...data.byDate };
-      delete newByDate[key];
-      const newByModel = { ...data.byModel };
-      delete newByModel[key];
-      const newByHour = { ...data.byHour };
-      for (const hour of Object.keys(newByHour)) {
-        if (hour.startsWith(`${key}-`)) delete newByHour[hour];
-      }
-      const newTotal = Math.max(0, (data.total || 0) - todayCount);
-      chrome.storage.local.set({
-        byDate: newByDate,
-        byModel: newByModel,
-        byHour: newByHour,
-        total: newTotal,
-        ...(newTotal === 0 ? CLEARED_DIAGNOSTICS : {}),
-      });
+    chrome.runtime.sendMessage({ type: 'resetToday' }, (response) => {
+      if (response?.ok) updateDisplay();
     });
   });
 
   const resetAll = document.getElementById('resetAll');
   if (resetAll) resetAll.addEventListener('click', () => {
-    chrome.storage.local.set({
-      byDate: {},
-      byModel: {},
-      byHour: {},
-      sessions: {},
-      total: 0,
-      ...CLEARED_DIAGNOSTICS,
+    chrome.runtime.sendMessage({ type: 'resetAll' }, (response) => {
+      if (response?.ok) updateDisplay();
     });
   });
 
