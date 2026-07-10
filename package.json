@@ -5,7 +5,8 @@
   "description": "Local-first Chrome extension for prompt counts across supported AI chat sites.",
   "scripts": {
     "build": "./build.sh",
-    "test": "node --test test/*.test.js"
+    "test": "node --test test/*.test.js",
+    "verify:package": "./scripts/verify-package.sh"
   },
   "engines": {
     "node": ">=20"
