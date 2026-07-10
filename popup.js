@@ -109,11 +109,13 @@ function formatReason(reason) {
     'chatgpt-network': 'Network',
     'claude-network': 'Network',
     'perplexity-network': 'Network',
+    'grok-network': 'Network',
     network: 'Network',
     'content-tick': 'Page event',
     'dom-event': 'Page event',
     'claude-dom-fallback': 'Page fallback',
     'perplexity-dom-fallback': 'Page fallback',
+    'grok-dom-fallback': 'Page fallback',
     stored: 'Recorded',
   };
   return labels[reason] || reason || 'None';
@@ -294,7 +296,7 @@ function updateProviderBreakdown(data, todayDate) {
     todayDate
   );
   const allTimeCounts = getProviderTotals(data.byDate, data.byProviderModel);
-  const providerOrder = ['chatgpt', 'claude', 'gemini', 'perplexity', 'unknown'];
+  const providerOrder = ['chatgpt', 'claude', 'gemini', 'perplexity', 'grok', 'unknown'];
 
   container.replaceChildren();
   for (const provider of providerOrder) {

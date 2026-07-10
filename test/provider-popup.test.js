@@ -22,10 +22,10 @@ describe('popup provider totals', () => {
   it('shows today and all-time counts for each supported service', () => {
     const today = todayKey();
     const harness = createPopupScriptHarness({
-      byDate: { '2026-01-01': 3, [today]: 7 },
+      byDate: { '2026-01-01': 3, [today]: 9 },
       byModel: {
         '2026-01-01': { 'gpt-5': 3 },
-        [today]: { 'gpt-5': 2, sonnet: 2, sonar: 2, unknown: 1 },
+        [today]: { 'gpt-5': 2, sonnet: 2, sonar: 2, 'grok-4': 2, unknown: 1 },
       },
       byProviderModel: {
         '2026-01-01': { chatgpt: { 'gpt-5': 3 } },
@@ -33,6 +33,7 @@ describe('popup provider totals', () => {
           chatgpt: { 'gpt-5': 2 },
           claude: { sonnet: 2 },
           perplexity: { sonar: 2 },
+          grok: { 'grok-4': 2 },
           unknown: { unknown: 1 },
         },
       },
@@ -45,6 +46,7 @@ describe('popup provider totals', () => {
       Claude: { today: 2, total: 2 },
       Gemini: { today: 0, total: 0 },
       Perplexity: { today: 2, total: 2 },
+      Grok: { today: 2, total: 2 },
       Unknown: { today: 1, total: 1 },
     });
   });

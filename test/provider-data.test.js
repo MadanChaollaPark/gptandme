@@ -20,6 +20,7 @@ const CANONICAL_PROVIDERS = [
   'claude',
   'gemini',
   'perplexity',
+  'grok',
   'unknown',
 ];
 const DANGEROUS_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
@@ -108,6 +109,8 @@ describe('provider identity contract', () => {
       ['perplexity.ai', 'perplexity'],
       ['www.perplexity.ai', 'perplexity'],
       ['WWW.PERPLEXITY.AI', 'perplexity'],
+      ['grok.com', 'grok'],
+      ['GROK.COM', 'grok'],
     ];
 
     for (const [host, expected] of cases) {
@@ -122,6 +125,8 @@ describe('provider identity contract', () => {
       'claude.ai.evil.example',
       'notclaude.ai',
       'perplexity.ai.example',
+      'grok.com.evil.example',
+      'notgrok.com',
       'chatgpt.example',
       '__proto__',
     ]) {
@@ -139,6 +144,8 @@ describe('provider identity contract', () => {
       ['gemini.google.com', 'gemini'],
       ['Perplexity', 'perplexity'],
       ['www.perplexity.ai', 'perplexity'],
+      ['Grok', 'grok'],
+      ['grok.com', 'grok'],
       ['unknown', 'unknown'],
     ];
 

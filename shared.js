@@ -40,6 +40,7 @@
     claude: Object.freeze({ label: 'Claude' }),
     gemini: Object.freeze({ label: 'Gemini' }),
     perplexity: Object.freeze({ label: 'Perplexity' }),
+    grok: Object.freeze({ label: 'Grok' }),
     unknown: Object.freeze({ label: 'Unknown' }),
   });
   const PROVIDER_ALIASES = Object.freeze({
@@ -49,6 +50,7 @@
     'gemini.google.com': 'gemini',
     'perplexity.ai': 'perplexity',
     'www.perplexity.ai': 'perplexity',
+    'grok.com': 'grok',
   });
   const UNSAFE_OBJECT_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
   const MAX_STORAGE_KEY_LENGTH = 160;
@@ -145,6 +147,19 @@
       domFallback: true,
       hosts: ['www.perplexity.ai', 'perplexity.ai'],
       provider: 'perplexity',
+    },
+    'grok.com': {
+      sendButtons: [
+        'button[data-testid="chat-submit"]',
+        'button[aria-label="Submit"][type="submit"]',
+      ],
+      composerInputs: [
+        '[role="textbox"][contenteditable="true"][aria-label="Ask Grok anything"]',
+      ],
+      countViaPageNetwork: true,
+      domFallback: true,
+      hosts: ['grok.com'],
+      provider: 'grok',
     },
   };
 

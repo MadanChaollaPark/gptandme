@@ -94,7 +94,7 @@ function tick({
   const now = Date.now();
   if (throttle && now - lastTick < throttleMs) return;
   lastTick = now;
-  chrome.runtime?.sendMessage?.({
+  const request = chrome.runtime?.sendMessage?.({
     type: "tick",
     eventId,
     model,
@@ -103,6 +103,7 @@ function tick({
     sessionId: sessionId(),
     reason,
   });
+  request?.catch?.(() => {});
 }
 
 function recordDomSend() {
@@ -130,10 +131,18 @@ function inComposer(el) {
 function composerRoot(el) {
   if (!el || !(el instanceof Element)) return null;
   const inputSelector = (siteConfig.composerInputs || ['textarea', '[contenteditable="true"]']).join(', ');
+  const semanticRoot = el.closest?.('form, [role="form"], [data-testid*="composer"]');
+  if (semanticRoot) {
+    const containsInput = Boolean(
+      semanticRoot.matches?.(inputSelector) || semanticRoot.querySelector?.(inputSelector)
+    );
+    if (containsInput && activeSendButton(semanticRoot)) return semanticRoot;
+  }
+
   let root = el;
   let depth = 0;
 
-  while (root && depth < 12) {
+  while (root && depth < 32 && root !== document.documentElement) {
     const containsInput = Boolean(
       root.matches?.(inputSelector) || root.querySelector?.(inputSelector)
     );
@@ -208,14 +217,32 @@ function canSendFrom(el) {
   return isQueueControl(sendButton) || !hasBusyControl(root);
 }
 
-function hasActiveSuggestionMenu() {
+function isVisibleSuggestionMenu(menu) {
+  if (menu.hidden || menu.getAttribute?.('aria-hidden') === 'true') return false;
+  if (menu.id === 'typeahead-menu') return true;
+  if (typeof menu.getBoundingClientRect !== 'function') return false;
+  const rect = menu.getBoundingClientRect();
+  return rect.width > 0 && rect.height > 0;
+}
+
+function hasActiveSuggestionMenu(target) {
+  const root = composerRoot(target);
   const menus = document.querySelectorAll('#typeahead-menu, [role="listbox"]');
+  const scopedMenus = new Set(root
+    ? [...root.querySelectorAll('#typeahead-menu, [role="listbox"]')]
+    : []);
+  const controlledIds = new Set();
+  const controls = [target, ...(root?.querySelectorAll?.('[aria-controls]') || [])];
+  for (const control of controls) {
+    for (const id of String(control?.getAttribute?.('aria-controls') || '').split(/\s+/)) {
+      if (id) controlledIds.add(id);
+    }
+  }
+
   return [...menus].some((menu) => {
-    if (menu.hidden || menu.getAttribute?.('aria-hidden') === 'true') return false;
-    if (menu.id === 'typeahead-menu') return true;
-    if (typeof menu.getBoundingClientRect !== 'function') return false;
-    const rect = menu.getBoundingClientRect();
-    return rect.width > 0 && rect.height > 0;
+    if (!isVisibleSuggestionMenu(menu)) return false;
+    if (provider === 'perplexity' && menu.id === 'typeahead-menu') return true;
+    return scopedMenus.has(menu) || controlledIds.has(menu.id);
   });
 }
 
@@ -226,7 +253,7 @@ if (countDomEvents) {
     if (
       inComposer(e.target) &&
       shouldCountKey(e) &&
-      !hasActiveSuggestionMenu() &&
+      !hasActiveSuggestionMenu(e.target) &&
       canSendFrom(e.target)
     ) {
       recordDomSend();

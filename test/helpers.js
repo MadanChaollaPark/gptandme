@@ -22,20 +22,30 @@ function selectorMatchesSingle(el, selector) {
     return el.tagName.toLowerCase() === selector.toLowerCase();
   }
 
-  const attrMatch = /^(?:(\w+))?\[([\w-]+)(\*?=)?(?:"([^"]*)"|'([^']*)'|([^\]]+))?\]$/.exec(selector);
-  if (!attrMatch) return false;
+  const compoundMatch = /^(?:(\w+))?((?:\[[^\]]+\])+)$/.exec(selector);
+  if (!compoundMatch) return false;
 
-  const [, tag, attr, op, doubleQuoted, singleQuoted, unquoted] = attrMatch;
+  const [, tag, attributes] = compoundMatch;
   if (tag && el.tagName.toLowerCase() !== tag.toLowerCase()) return false;
 
-  const value = el.getAttribute(attr);
-  if (value === null) return false;
-  if (!op) return true;
+  const attrMatches = [...attributes.matchAll(
+    /\[([\w-]+)(\*?=)?(?:"([^"]*)"|'([^']*)'|([^\]]+))?\]/g
+  )];
+  if (!attrMatches.length || attrMatches.map((match) => match[0]).join('') !== attributes) {
+    return false;
+  }
 
-  const expected = doubleQuoted ?? singleQuoted ?? unquoted ?? '';
-  if (op === '=') return value === expected;
-  if (op === '*=') return value.includes(expected);
-  return false;
+  return attrMatches.every((match) => {
+    const [, attr, op, doubleQuoted, singleQuoted, unquoted] = match;
+    const value = el.getAttribute(attr);
+    if (value === null) return false;
+    if (!op) return true;
+
+    const expected = doubleQuoted ?? singleQuoted ?? unquoted ?? '';
+    if (op === '=') return value === expected;
+    if (op === '*=') return value.includes(expected);
+    return false;
+  });
 }
 
 function selectorMatches(el, selector) {

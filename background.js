@@ -344,10 +344,10 @@ async function incrementNow(
   const recentEvents = normalizeRecentEvents(data.recentEvents, dedupe.now);
 
   if (stableEventKey) {
-    if (recentEvents[stableEventKey]) return;
+    if (recentEvents[stableEventKey]) return false;
     recentEvents[stableEventKey] = dedupe.now;
   } else {
-    if (shouldDedupeRecord(dedupe, data.lastIncrementKey, data.lastIncrementAt)) return;
+    if (shouldDedupeRecord(dedupe, data.lastIncrementKey, data.lastIncrementAt)) return false;
     rememberDedupeRecord(dedupe);
   }
 
@@ -400,6 +400,7 @@ async function incrementNow(
     }),
   });
   setBadgeCount(byDate[day]);
+  return true;
 }
 
 function increment(...args) {
@@ -550,18 +551,22 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       message.sessionId,
       `${context.provider}:tab-${context.tabId ?? 'unknown'}`
     );
-    const usesStablePageEvents = context.provider === 'claude' || context.provider === 'perplexity';
+    const usesStablePageEvents = context.provider === 'claude'
+      || context.provider === 'perplexity'
+      || context.provider === 'grok';
     const eventId = usesStablePageEvents ? safeOpaqueId(message.eventId, '') : null;
     const dedupeKey = eventId || `tab-${context.tabId ?? sessionId}`;
-    increment(
-      message.model || 'unknown',
-      context.host,
-      sessionId,
-      dedupeKey,
-      message.reason || 'content-tick',
-      eventId
+    return sendAsyncResponse(
+      sendResponse,
+      increment(
+        message.model || 'unknown',
+        context.host,
+        sessionId,
+        dedupeKey,
+        message.reason || 'content-tick',
+        eventId
+      ).then(counted => ({ ok: true, counted }))
     );
-    return;
   }
 
   if (message.type === 'getStatus') {

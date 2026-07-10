@@ -18,6 +18,13 @@ function createEnvironment(hostname) {
   const fetchCalls = [];
   const webSocketCalls = [];
   let opaqueId = 0;
+  let now = 1_000_000;
+
+  class HarnessDate extends Date {
+    static now() {
+      return now;
+    }
+  }
 
   function nativeFetch(...args) {
     fetchCalls.push({ args, thisValue: this });
@@ -50,7 +57,7 @@ function createEnvironment(hostname) {
 
   const sandbox = {
     CustomEvent: TestCustomEvent,
-    Date,
+    Date: HarnessDate,
     Math,
     Request,
     String,
@@ -78,6 +85,9 @@ function createEnvironment(hostname) {
 
   load();
   return {
+    advanceTime(milliseconds) {
+      now += milliseconds;
+    },
     events,
     fetchCalls,
     load,
@@ -162,7 +172,7 @@ describe('page network intent interception', () => {
       }
     });
 
-    it('reuses an opaque fallback ID without leaking request content', async () => {
+    it('dedupes an immediate retry but gives a later identical send a new opaque ID', async () => {
       const environment = createEnvironment('claude.ai');
       const body = JSON.stringify({
         model: 'claude-sonnet-4',
@@ -172,14 +182,17 @@ describe('page network intent interception', () => {
 
       await callFetch(environment, endpoint, { body, method: 'POST' });
       await callFetch(environment, endpoint, { body, method: 'POST' });
+      environment.advanceTime(1001);
+      await callFetch(environment, endpoint, { body, method: 'POST' });
 
       const details = sendEvents(environment);
-      assert.equal(details.length, 2);
-      assert.equal(details[0].eventId, details[1].eventId, 'identical intent must get a stable fallback ID');
+      assert.equal(details.length, 3);
+      assert.equal(details[0].eventId, details[1].eventId, 'an immediate retry must reuse the fallback ID');
+      assert.notEqual(details[1].eventId, details[2].eventId, 'a later identical send must count separately');
       assert.match(details[0].eventId, /^claude:local-opaque-\d+$/);
       assert.doesNotMatch(details[0].eventId, /sanitized|fallback|fixture/i);
       assert.doesNotMatch(JSON.stringify(details), /sanitized-fallback-fixture/);
-      assert.equal(environment.fetchCalls.length, 2);
+      assert.equal(environment.fetchCalls.length, 3);
     });
 
     it('counts an attachment-only human send with an opaque request ID', async () => {
@@ -278,6 +291,92 @@ describe('page network intent interception', () => {
       }
 
       assert.equal(environment.fetchCalls.length, cases.length);
+      assert.deepEqual(sendEvents(environment), []);
+    });
+  });
+
+  describe('Grok fetch requests', () => {
+    it('detects a new-conversation send and a follow-up response send', async () => {
+      const environment = createEnvironment('grok.com');
+      const newBody = JSON.stringify({
+        message: 'sanitized-grok-fixture-alpha',
+        modelName: 'grok-4',
+        request_id: 'grok-new-001',
+      });
+      const responseBody = JSON.stringify({
+        message: 'sanitized-grok-fixture-beta',
+        modelName: 'grok-4-heavy',
+        request_id: 'grok-response-002',
+      });
+
+      const first = await callFetch(
+        environment,
+        'https://grok.com/rest/app-chat/conversations/new',
+        { body: newBody, method: 'POST' }
+      );
+      const second = await callFetch(
+        environment,
+        '/rest/app-chat/conversations/conversation-fixture/responses',
+        { body: responseBody, method: 'post' }
+      );
+
+      assert.deepEqual(first, { call: 1, transport: 'fetch' });
+      assert.deepEqual(second, { call: 2, transport: 'fetch' });
+      assert.equal(environment.fetchCalls.length, 2);
+      assert.deepEqual(sendEvents(environment), [
+        {
+          eventId: 'grok:grok-new-001',
+          model: 'grok-4',
+          provider: 'grok',
+        },
+        {
+          eventId: 'grok:grok-response-002',
+          model: 'grok-4-heavy',
+          provider: 'grok',
+        },
+      ]);
+      assert.doesNotMatch(JSON.stringify(environment.events), /sanitized-grok-fixture/);
+    });
+
+    it('counts an attachment-only send without leaking content', async () => {
+      const environment = createEnvironment('grok.com');
+      await callFetch(
+        environment,
+        '/rest/app-chat/conversations/new',
+        {
+          body: JSON.stringify({
+            message: '',
+            fileAttachments: [{ id: 'sanitized-grok-file' }],
+            request_id: 'grok-attachment-001',
+          }),
+          method: 'POST',
+        }
+      );
+
+      assert.deepEqual(sendEvents(environment), [{
+        eventId: 'grok:grok-attachment-001',
+        model: null,
+        provider: 'grok',
+      }]);
+      assert.doesNotMatch(JSON.stringify(environment.events), /sanitized-grok-file/);
+    });
+
+    it('ignores GET, non-matching paths, and input-free bodies without blocking fetch', async () => {
+      const environment = createEnvironment('grok.com');
+      const requests = [
+        ['/rest/app-chat/conversations/new', { body: '{"message":"sanitized-get"}', method: 'GET' }],
+        ['/rest/app-chat/conversations/conv-1/title', { body: '{"message":"sanitized-title"}', method: 'POST' }],
+        ['/rest/app-chat/conversations/conv-1/responses/extra', { body: '{"message":"sanitized-nested"}', method: 'POST' }],
+        ['/rest/app-chat/conversations', { body: '{"message":"sanitized-root"}', method: 'POST' }],
+        ['/rest/app-chat/conversations/new', { body: '{}', method: 'POST' }],
+        ['/rest/app-chat/conversations/new', { body: '{"message":"   "}', method: 'POST' }],
+      ];
+
+      for (const [url, init] of requests) {
+        await callFetch(environment, url, init);
+      }
+
+      assert.equal(environment.fetchCalls.length, requests.length);
       assert.deepEqual(sendEvents(environment), []);
     });
   });

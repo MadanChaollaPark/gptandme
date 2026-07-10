@@ -9,9 +9,12 @@
 
   const nativeFetch = window.fetch;
   const nativeWebSocketSend = window.WebSocket?.prototype?.send;
+  const nativeXhrOpen = window.XMLHttpRequest?.prototype?.open;
+  const nativeXhrSend = window.XMLHttpRequest?.prototype?.send;
   const hostname = location.hostname.toLowerCase();
   const fallbackEvents = new Map();
-  const FALLBACK_EVENT_TTL_MS = 60 * 1000;
+  const xhrRequests = new WeakMap();
+  const FALLBACK_EVENT_TTL_MS = 1000;
 
   function parseUrl(input) {
     try {
@@ -76,11 +79,16 @@
   function requestEventId(provider, body, rawBody) {
     const params = parseJson(body?.params) || body?.params || {};
     const candidates = [
+      body?.event_id,
+      body?.eventId,
       body?.completion_request_id,
       body?.turn_message_uuids?.human_message_uuid,
       body?.human_message_uuid,
       body?.frontend_uuid,
       body?.request_id,
+      body?.client_message_id,
+      body?.clientMessageId,
+      body?.item?.x_grok?.client_message_id,
       params?.frontend_uuid,
       params?.request_id,
       params?.uuid,
@@ -120,11 +128,27 @@
     }
   }
 
-  function inspectClaude(url, method, rawBody) {
-    if (method !== 'POST') return;
-    if (!/^\/api\/organizations\/[^/]+\/chat_conversations\/[^/]+\/completion2?$/.test(url?.pathname || '')) {
-      return;
+  function isClaudePromptEndpoint(url) {
+    const segments = String(url?.pathname || '').split('/').filter(Boolean);
+    const apiIndex = segments.indexOf('api');
+    const organizationsIndex = segments.indexOf('organizations');
+    const conversationIndex = segments.indexOf('chat_conversations');
+    if (apiIndex === -1 || organizationsIndex <= apiIndex || conversationIndex <= organizationsIndex + 1) {
+      return false;
     }
+
+    const conversationId = segments[conversationIndex + 1];
+    const operation = segments[conversationIndex + 2];
+    return Boolean(
+      conversationId &&
+      operation &&
+      /^completion2?$/.test(operation) &&
+      conversationIndex + 3 === segments.length
+    );
+  }
+
+  function inspectClaude(url, method, rawBody) {
+    if (method !== 'POST' || !isClaudePromptEndpoint(url)) return;
 
     const body = parseJson(rawBody);
     if (!body || !hasClaudeUserInput(body)) return;
@@ -210,10 +234,128 @@
     );
   }
 
+  function hasGrokUserInput(body = {}) {
+    if (typeof body.message === 'string' && body.message.trim()) return true;
+    return [body.attachments, body.files, body.fileAttachments, body.imageAttachments].some(
+      (items) => Array.isArray(items) && items.length > 0
+    );
+  }
+
+  function inspectGrok(url, method, rawBody) {
+    if (
+      method !== 'POST' ||
+      !/^\/rest\/app-chat\/conversations\/(new|[^/]+\/responses)\/?$/.test(url?.pathname || '')
+    ) {
+      return;
+    }
+    const body = parseJson(rawBody);
+    if (
+      !body ||
+      body.isRegenRequest === true ||
+      body.is_regen_request === true ||
+      !hasGrokUserInput(body)
+    ) {
+      return;
+    }
+    emitSend(
+      'grok',
+      requestEventId('grok', body, rawBody),
+      body.modelName || body.model
+    );
+  }
+
+  function hasGrokGatewayUserInput(event = {}) {
+    const item = event.item || {};
+    if (item.type !== 'message' || item.role !== 'user') return false;
+    if (hasTextContent(item.content)) return true;
+    if (hasTextContent(item.x_grok?.input_chunks)) return true;
+    return Array.isArray(event.file_attachment_ids) && event.file_attachment_ids.length > 0;
+  }
+
+  function inspectGrokWebSocket(rawData) {
+    const envelope = parseJson(rawData);
+    if (!envelope || typeof envelope !== 'object' || Array.isArray(envelope)) return;
+    const event = parseJson(envelope.event) || envelope.event || envelope;
+    if (
+      !event ||
+      event.type !== 'conversation.item.create' ||
+      event.isRegenRequest === true ||
+      event.is_regen_request === true ||
+      !hasGrokGatewayUserInput(event)
+    ) {
+      return;
+    }
+    emitSend(
+      'grok',
+      requestEventId('grok', event, rawData),
+      event.modelName || event.model || event.item?.model
+    );
+  }
+
+  function isGrokGatewaySocket(socket) {
+    const url = parseUrl(socket?.url);
+    return Boolean(
+      url &&
+      url.hostname.toLowerCase() === 'grok.com' &&
+      /^\/ws\/(?:gw|mgw)\/?$/.test(url.pathname)
+    );
+  }
+
+  function formDataToText(formData) {
+    const fields = Object.create(null);
+    for (const [key, value] of formData.entries()) {
+      if (!key || key === '__proto__' || key === 'constructor' || key === 'prototype') continue;
+      const safeValue = typeof value === 'string'
+        ? value
+        : { name: String(value?.name || 'attachment').slice(0, 160) };
+      if (Object.hasOwn(fields, key)) {
+        fields[key] = Array.isArray(fields[key])
+          ? [...fields[key], safeValue]
+          : [fields[key], safeValue];
+      } else {
+        fields[key] = safeValue;
+      }
+    }
+    return JSON.stringify(fields);
+  }
+
+  function binaryBodyToText(value) {
+    try {
+      let bytes = null;
+      if (typeof ArrayBuffer !== 'undefined' && value instanceof ArrayBuffer) {
+        bytes = new Uint8Array(value);
+      } else if (typeof ArrayBuffer !== 'undefined' && ArrayBuffer.isView?.(value)) {
+        bytes = new Uint8Array(value.buffer, value.byteOffset, value.byteLength);
+      }
+      if (bytes && typeof TextDecoder !== 'undefined') return new TextDecoder().decode(bytes);
+    } catch (_) {
+      // Unsupported binary bodies are ignored without affecting the request.
+    }
+    return '';
+  }
+
+  async function valueText(value) {
+    if (typeof value === 'string') return value;
+    if (typeof URLSearchParams !== 'undefined' && value instanceof URLSearchParams) {
+      return value.toString();
+    }
+    if (typeof FormData !== 'undefined' && value instanceof FormData) {
+      return formDataToText(value);
+    }
+    if (typeof Blob !== 'undefined' && value instanceof Blob && typeof value.text === 'function') {
+      try {
+        return await value.text();
+      } catch (_) {
+        return '';
+      }
+    }
+    return binaryBodyToText(value);
+  }
+
   async function bodyText(input, init = {}) {
-    if (typeof init.body === 'string') return init.body;
-    if (typeof URLSearchParams !== 'undefined' && init.body instanceof URLSearchParams) {
-      return init.body.toString();
+    const options = init && typeof init === 'object' ? init : {};
+    if (Object.prototype.hasOwnProperty.call(options, 'body')) {
+      return valueText(options.body);
     }
     try {
       if (typeof Request !== 'undefined' && input instanceof Request) {
@@ -225,19 +367,28 @@
     return '';
   }
 
-  async function inspectFetch(input, init = {}) {
+  async function inspectTransport(input, method, body) {
     const url = parseUrl(input);
     if (!url) return;
-    const method = String(init.method || input?.method || 'GET').toUpperCase();
-    const rawBody = await bodyText(input, init);
+    const normalizedMethod = String(method || input?.method || 'GET').toUpperCase();
+    const rawBody = await valueText(body);
 
     if (hostname === 'chatgpt.com' || hostname === 'chat.openai.com') {
-      inspectChatGpt(url, method, rawBody);
+      inspectChatGpt(url, normalizedMethod, rawBody);
     } else if (hostname === 'claude.ai') {
-      inspectClaude(url, method, rawBody);
+      inspectClaude(url, normalizedMethod, rawBody);
     } else if (hostname === 'perplexity.ai' || hostname === 'www.perplexity.ai') {
-      inspectPerplexityFetch(url, method, rawBody);
+      inspectPerplexityFetch(url, normalizedMethod, rawBody);
+    } else if (hostname === 'grok.com') {
+      inspectGrok(url, normalizedMethod, rawBody);
     }
+  }
+
+  async function inspectFetch(input, init = {}) {
+    const options = init && typeof init === 'object' ? init : {};
+    const method = String(options.method || input?.method || 'GET').toUpperCase();
+    const rawBody = await bodyText(input, options);
+    return inspectTransport(input, method, rawBody);
   }
 
   if (typeof nativeFetch === 'function') {
@@ -247,16 +398,39 @@
     };
   }
 
+  if (typeof nativeXhrOpen === 'function' && typeof nativeXhrSend === 'function') {
+    window.XMLHttpRequest.prototype.open = function (method, url) {
+      const result = nativeXhrOpen.apply(this, arguments);
+      xhrRequests.set(this, { method: String(method || 'GET'), url });
+      return result;
+    };
+    window.XMLHttpRequest.prototype.send = function (body) {
+      const request = xhrRequests.get(this);
+      if (request) inspectTransport(request.url, request.method, body).catch(() => {});
+      return nativeXhrSend.apply(this, arguments);
+    };
+  }
+
   if (
-    (hostname === 'perplexity.ai' || hostname === 'www.perplexity.ai') &&
+    (
+      hostname === 'perplexity.ai' ||
+      hostname === 'www.perplexity.ai' ||
+      hostname === 'grok.com'
+    ) &&
     typeof nativeWebSocketSend === 'function'
   ) {
     window.WebSocket.prototype.send = function (data) {
-      try {
-        inspectPerplexityWebSocket(data);
-      } catch (_) {
-        // Never interfere with the site's transport.
-      }
+      const inspectData = (rawData) => {
+        try {
+          if (hostname === 'grok.com') inspectGrokWebSocket(rawData);
+          else inspectPerplexityWebSocket(rawData);
+        } catch (_) {
+          // Never interfere with the site's transport.
+        }
+      };
+      const shouldInspect = hostname !== 'grok.com' || isGrokGatewaySocket(this);
+      if (shouldInspect && typeof data === 'string') inspectData(data);
+      else if (shouldInspect) valueText(data).then(inspectData).catch(() => {});
       return nativeWebSocketSend.apply(this, arguments);
     };
   }

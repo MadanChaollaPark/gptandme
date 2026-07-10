@@ -35,19 +35,19 @@
     <p>This extension handles usage data locally in your browser so it can count prompts and show usage statistics. It does not transmit, sell, or share user data. It does not send data to any server and does not use analytics, advertising, or tracking services.</p>
 
     <h2>Data Storage</h2>
-    <p>All usage data is stored locally on your device using the Chrome Storage API. This includes prompt counts, daily/weekly/monthly totals, per-service counts for ChatGPT, Claude, Gemini, and Perplexity, model-count summaries when available, hourly/session statistics, non-sensitive diagnostics such as the last counted time/source and last supported host, and local preferences such as the in-page counter setting. To prevent transport retries from being counted twice, GPTandME also keeps up to 500 opaque event identifiers locally with a 24-hour deduplication window; expired identifiers are pruned during hourly maintenance, startup, or the next write, and reset controls clear them. No data leaves your browser unless you manually export a CSV file from the popup.</p>
+    <p>All usage data is stored locally on your device using the Chrome Storage API. This includes prompt counts, daily/weekly/monthly totals, per-service counts for ChatGPT, Claude, Gemini, Perplexity, and Grok, model-count summaries when available, hourly/session statistics, non-sensitive diagnostics such as the last counted time/source and last supported host, and local preferences such as the in-page counter setting. To prevent transport retries from being counted twice, GPTandME also keeps up to 500 opaque event identifiers locally with a 24-hour deduplication window; expired identifiers are pruned during hourly maintenance, startup, or the next write, and reset controls clear them. No data leaves your browser unless you manually export a CSV file from the popup.</p>
 
     <h2>Prompt Content</h2>
     <p>On supported chat services, the extension may inspect outgoing request data locally to distinguish a new user send from an automatic retry and to read an opaque request identifier or model label when available. Only non-content metadata is emitted to the extension. The extension does not store prompt text or a page's full URL path, and it does not send prompt text anywhere.</p>
 
     <h2>Extension Surfaces</h2>
-    <p>Version 1.3.0 exposes local usage information through the extension badge, the extension popup, and an optional in-page widget/counter on supported chat hosts. The popup shows today's and all-time prompt counts for ChatGPT, Claude, Gemini, and Perplexity, and may show a local OpenAI API cost proxy based on prompt-count assumptions; it is not actual billing data. The widget renders inside a closed browser shadow root so the host page cannot read its count. The widget is optional; the badge and popup remain the primary supported surfaces.</p>
+    <p>Version 1.4.0 exposes local usage information through the extension badge, the extension popup, and an optional in-page widget/counter on supported chat hosts. The popup shows today's and all-time prompt counts for ChatGPT, Claude, Gemini, Perplexity, and Grok, and may show a local OpenAI API cost proxy based on prompt-count assumptions; it is not actual billing data. The widget renders inside a closed browser shadow root so the host page cannot read its count. The widget is optional; the badge and popup remain the primary supported surfaces.</p>
 
     <h2>CSV Backups</h2>
     <p>Manual CSV exports use the columns date, provider, model, and count. Legacy GPTandME CSV files without a provider column remain importable and are assigned the provider value "unknown" because the extension cannot safely infer historical service attribution.</p>
 
     <h2>Supported Hosts</h2>
-    <p>The extension only runs on supported AI chat hosts: chatgpt.com, chat.openai.com, claude.ai, gemini.google.com, perplexity.ai, and www.perplexity.ai. It does not run on OpenAI platform, API, billing, help, documentation, or unrelated web pages.</p>
+    <p>The extension only runs on supported AI chat hosts: chatgpt.com, chat.openai.com, claude.ai, gemini.google.com, perplexity.ai, www.perplexity.ai, and grok.com. It does not run on OpenAI platform, API, billing, help, documentation, or unrelated web pages.</p>
 
     <h2>Permissions</h2>
     <ul>
@@ -55,11 +55,11 @@
       <li><strong>webRequest</strong> is used locally for ChatGPT request detection so user-sent prompts can be counted more reliably.</li>
       <li><strong>activeTab</strong> is used only when you open the popup so it can label whether the current tab is a supported host.</li>
       <li><strong>alarms</strong> is used locally to refresh the badge count after date changes while the browser is running.</li>
-      <li><strong>host permissions</strong> are limited to chatgpt.com, chat.openai.com, claude.ai, gemini.google.com, perplexity.ai, and www.perplexity.ai so the content script can detect user sends on supported chat sites.</li>
+      <li><strong>host permissions</strong> are limited to chatgpt.com, chat.openai.com, claude.ai, gemini.google.com, perplexity.ai, www.perplexity.ai, and grok.com so the content script can detect user sends on supported chat sites.</li>
     </ul>
 
     <h2>Third-Party Services</h2>
-    <p>This extension does not integrate with any third-party analytics, advertising, or tracking services. Version 1.3.0 adds no permissions and does not add external usage telemetry.</p>
+    <p>This extension does not integrate with any third-party analytics, advertising, or tracking services. Version 1.4.0 adds only the narrow grok.com host permission required for Grok counting and does not add external usage telemetry.</p>
 
     <h2>Limited Use</h2>
     <p>The use of information received from Google APIs will adhere to the Chrome Web Store User Data Policy, including the Limited Use requirements.</p>

@@ -102,6 +102,30 @@ function sendMessage(env, message, sender = {}) {
 }
 
 describe('background provider/model persistence', () => {
+  it('attributes and acknowledges Grok ticks from the sender tab with stable dedupe', async () => {
+    const env = loadBackground();
+    const message = {
+      type: 'tick',
+      eventId: 'grok:evt-message-1',
+      model: 'grok-4',
+      provider: 'claude',
+      site: 'claude.ai',
+      sessionId: 'grok:page-session-1',
+      reason: 'grok-network',
+    };
+    const sender = { tab: { id: 42, url: 'https://grok.com/' } };
+
+    const counted = clone(await sendMessage(env, message, sender));
+    const deduped = clone(await sendMessage(env, message, sender));
+    const day = shared.todayKey();
+
+    assert.deepEqual(counted, { ok: true, counted: true });
+    assert.deepEqual(deduped, { ok: true, counted: false });
+    assert.equal(env.storage.byDate[day], 1);
+    assert.equal(env.storage.byProviderModel[day].grok['grok-4'], 1);
+    assert.equal(env.storage.lastCountSite, 'grok.com');
+  });
+
   it('increments Claude and both Perplexity hosts into canonical joint buckets', async () => {
     const env = loadBackground();
 

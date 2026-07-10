@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "GPTandME",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "description": "Count prompts sent on supported AI chat websites and keep usage stats locally in your browser.",
   "minimum_chrome_version": "111",
   "permissions": ["storage", "webRequest", "activeTab", "alarms"],
@@ -10,6 +10,7 @@
     "*://chatgpt.com/*",
     "*://claude.ai/*",
     "*://gemini.google.com/*",
+    "*://grok.com/*",
     "*://perplexity.ai/*",
     "*://www.perplexity.ai/*"
   ],
@@ -32,6 +33,7 @@
         "*://chat.openai.com/*",
         "*://chatgpt.com/*",
         "*://claude.ai/*",
+        "*://grok.com/*",
         "*://perplexity.ai/*",
         "*://www.perplexity.ai/*"
       ],
@@ -45,6 +47,7 @@
         "*://chatgpt.com/*",
         "*://claude.ai/*",
         "*://gemini.google.com/*",
+        "*://grok.com/*",
         "*://perplexity.ai/*",
         "*://www.perplexity.ai/*"
       ],
