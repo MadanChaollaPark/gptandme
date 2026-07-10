@@ -2,7 +2,7 @@
   "name": "gptandme",
   "version": "1.2.4",
   "private": true,
-  "description": "Chrome extension that tracks ChatGPT prompt counts locally.",
+  "description": "Local-first Chrome extension for prompt counts across supported AI chat sites.",
   "scripts": {
     "build": "./build.sh",
     "test": "node --test test/*.test.js"

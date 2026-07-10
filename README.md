@@ -1,100 +1,82 @@
-# GPTandME
+<p align="center">
+  <img src="icons/icon128.png" width="96" height="96" alt="GPTandME icon">
+</p>
 
-GPTandME is a Manifest V3 browser extension that counts prompts sent from supported AI chat sites and stores the counts locally in the browser.
+<h1 align="center">GPTandME</h1>
 
-## v1.2.4 Surfaces
+<p align="center">
+  A local-first prompt counter for ChatGPT, Claude, Gemini, and Perplexity.
+</p>
 
-- Extension badge: shows today's prompt count.
-- Extension popup: shows today, week, month, last 24 hours, streak, total, an OpenAI API cost proxy, sessions, model breakdown, diagnostics, CSV import/export, and reset controls.
-- Optional in-page widget/counter: shows today's local count on supported chat hosts. It is optional; core tracking should still work through the badge and popup if the widget is hidden or unavailable.
+<p align="center">
+  <a href="https://chromewebstore.google.com/detail/jkejkpkndbbkfjpbjecbaldjgnhjiilf?utm_source=item-share-cb"><strong>Install from the Chrome Web Store</strong></a>
+  &middot;
+  <a href="https://madanchaollapark.github.io/gptandme/privacy.html">Privacy</a>
+  &middot;
+  <a href="https://madanchaollapark.github.io/gptandme/support.html">Support</a>
+</p>
 
-## Supported Browsers
+GPTandME counts prompts sent from supported AI chat sites and stores the usage data in the browser. It does not require an account or a GPTandME server.
 
-- Supported: Chrome and Chromium-based browsers that support Manifest V3 unpacked extensions, including Helium.
-- Also expected to work: Microsoft Edge, Brave, and other Chromium browsers with `chrome.storage`, `chrome.webRequest`, and extension action badge support.
-- Not currently packaged for: Firefox or Safari.
+## What It Shows
 
-## Supported Hosts
+- Today's prompt count in the extension badge and optional in-page counter.
+- Today, week, month, last 24 hours, streak, total, and session statistics.
+- Model breakdowns when the chat site exposes a model label.
+- An OpenAI API cost proxy based on prompt counts, not actual token usage or billing data.
+- CSV export and import for user-controlled backups.
+- Diagnostics and reset controls in the popup.
 
-GPTandME only runs on these chat hosts:
+## Supported Sites
 
-- ChatGPT: `chatgpt.com`, `chat.openai.com`
-- Claude: `claude.ai`
-- Gemini: `gemini.google.com`
-- Perplexity: `perplexity.ai`, `www.perplexity.ai`
+| Service | Hosts |
+| --- | --- |
+| ChatGPT | `chatgpt.com`, `chat.openai.com` |
+| Claude | `claude.ai` |
+| Gemini | `gemini.google.com` |
+| Perplexity | `perplexity.ai`, `www.perplexity.ai` |
 
-OpenAI/platform boundary:
+The extension does not run on OpenAI API, billing, documentation, or playground pages.
 
-- Counts ChatGPT prompts on `chatgpt.com` and the legacy `chat.openai.com` host.
-- Does not run on `openai.com`, `platform.openai.com`, `api.openai.com`, `help.openai.com`, docs pages, billing pages, playground/API pages, or unrelated OpenAI web properties.
+## Install
 
-## Local Install
+Install the published extension from the [Chrome Web Store](https://chromewebstore.google.com/detail/jkejkpkndbbkfjpbjecbaldjgnhjiilf?utm_source=item-share-cb).
 
-1. Open the extensions page for your browser:
-   - Chrome/Chromium/Helium: `chrome://extensions`
-   - Edge: `edge://extensions`
-   - Brave: `brave://extensions`
-2. Enable Developer mode.
-3. Click **Load unpacked**.
-4. Select the repository folder exactly:
+To test the current source locally:
 
-```text
-/Users/madan/Code/ai-tools/gptandme
-```
+1. Clone this repository.
+2. Open `chrome://extensions` in Chrome or another Chromium browser.
+3. Enable **Developer mode**.
+4. Select **Load unpacked** and choose the repository root.
+5. Send a new prompt on a supported site and confirm the badge increments.
 
-Do not select `/Users/madan/Code/gptandme`; that path is stale/missing on this machine.
+Historical prompts are not backfilled.
 
-## Helium Stale Entry Cleanup
+## Privacy
 
-If Helium shows an old unpacked extension entry or an error for `/Users/madan/Code/gptandme`, remove that entry from the extensions page first. Then click **Load unpacked** again and choose:
+Prompt counts, dates, model labels, session statistics, supported-site labels, diagnostics, and preferences stay in `chrome.storage.local`. GPTandME does not send that data or prompt text to an external server. Data leaves the browser only when the user manually exports a CSV.
 
-```text
-/Users/madan/Code/ai-tools/gptandme
-```
+The extension requests access only to its supported chat hosts. ChatGPT request detection uses `webRequest` as a backup counting signal; prompt text is not retained or transmitted by GPTandME.
 
-After reload, send one prompt on a supported host and confirm the badge increments and the popup values update.
-
-## Diagnostics Panel
-
-Use the popup diagnostics panel first:
-
-1. Open a supported chat host.
-2. Open the GPTandME extension popup.
-3. Check **Diagnostics** for version, status, current-site support, last-counted time, and any last reason.
-4. Use the **In-page counter** toggle to confirm whether the optional page widget is enabled.
-
-Then use the browser extensions diagnostics if the popup still does not explain the issue:
-
-1. Open `chrome://extensions` or the equivalent extensions page for your browser.
-2. Find **GPTandME**.
-3. Check that the extension is enabled and loaded from `/Users/madan/Code/ai-tools/gptandme`.
-4. Open **Details** and inspect **Errors** for content-script, service-worker, or permission failures.
-5. Open **Inspect views** / **service worker** to watch background logs while sending a test prompt.
-6. Confirm you are testing on a supported chat host, not an OpenAI platform/API/docs page.
-7. Reload the extension after editing files or switching branches.
-
-Common install symptoms:
-
-- Badge does not change: verify the current tab is one of the supported hosts and reload the extension.
-- Popup opens but all counts are zero: send a new prompt after the extension is loaded; historical prompts are not backfilled.
-- API proxy looks too low or says unpriced: the popup only has prompt counts, not real token usage. Unknown or unsupported model names are not charged with a fake fallback price.
-- Helium still references `/Users/madan/Code/gptandme`: remove the stale entry and load the correct repo path.
-- OpenAI platform pages do not count: this is expected; only ChatGPT chat hosts are supported.
-- Old counts live under another extension ID: export CSV from the old popup if possible, then use **Import CSV** in the current popup to merge those rows.
+Read the full [privacy policy](https://madanchaollapark.github.io/gptandme/privacy.html).
 
 ## Development
+
+Requires Node.js 20 or newer plus the standard `zip` and `unzip` commands.
 
 ```bash
 npm test
 npm run build
+npm run verify:package
 ```
 
-`npm run build` creates the Chrome Web Store zip at:
+`npm run build` creates `dist/gptandme.zip`. The build normalizes archive metadata so the same source produces the same ZIP bytes. `npm run verify:package` checks the exact file inventory and confirms that package and manifest versions match.
 
-```text
-/Users/madan/Code/ai-tools/gptandme/dist/gptandme.zip
-```
+## Troubleshooting
 
-## Privacy
+- Badge does not change: confirm the current tab is a supported chat host, then reload the extension.
+- Popup values stay at zero: send a new prompt after installation; existing conversations are not imported automatically.
+- API proxy is low or unpriced: it is an estimate based on available model labels and prompt counts, not token telemetry.
+- Counts belong to another extension ID: export a CSV from the old popup, then import it into the current extension.
 
-GPTandME is local-only. It does not send prompt counts, model names, session stats, host data, request data, or browsing data to any server. Counts stay in `chrome.storage.local` unless you manually export a CSV from the popup.
+GPTandME is an independent project and is not affiliated with, endorsed by, or sponsored by OpenAI, Anthropic, Google, or Perplexity.
