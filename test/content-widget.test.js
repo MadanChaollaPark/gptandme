@@ -61,7 +61,8 @@ class FakeElement {
     return this.attributes[name] || null;
   }
 
-  attachShadow() {
+  attachShadow(options = {}) {
+    this.shadowMode = options.mode || 'open';
     this.shadowRoot = new FakeShadowRoot(this.ownerDocument, this);
     this.shadowRoot.setConnected(this.isConnected);
     return this.shadowRoot;
@@ -152,7 +153,9 @@ function createMutationObserver(document) {
       document.observers.push(this);
     }
 
-    observe() {
+    observe(target, options) {
+      this.target = target;
+      this.options = options;
       this.active = true;
     }
 
@@ -233,6 +236,7 @@ describe('content page counter widget', () => {
 
     assert.equal(widgetHosts(document).length, 1);
     assert.equal(widgetValue(document), '7');
+    assert.equal(widgetHosts(document)[0].shadowMode, 'closed');
     assert.match(widgetHosts(document)[0].shadowRoot.textContent, /today/);
   });
 
@@ -281,6 +285,16 @@ describe('content page counter widget', () => {
 
     assert.equal(widgetHosts(document).length, 1);
     assert.equal(widgetValue(document), '3');
+  });
+
+  it('observes only direct body children instead of the streaming page subtree', () => {
+    const { document } = runContent();
+    const [observer] = document.observers;
+
+    assert.strictEqual(observer.target, document.body);
+    assert.equal(observer.options.childList, true);
+    assert.equal(Object.keys(observer.options).length, 1);
+    assert.equal(observer.options.subtree, undefined);
   });
 
   it('does not insert on unsupported hosts', () => {

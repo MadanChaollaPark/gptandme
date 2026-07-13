@@ -33,6 +33,7 @@
   <body>
     <h1>GPTandME</h1>
     <p class="muted">A local prompt counter for supported AI chat websites.</p>
+    <p class="muted">Documentation for version 1.4.0.</p>
     <nav>
       <a href="https://chromewebstore.google.com/detail/jkejkpkndbbkfjpbjecbaldjgnhjiilf?utm_source=item-share-cb">Install from the Chrome Web Store</a>
       <a href="./privacy.html">Privacy Policy</a>
@@ -40,18 +41,21 @@
     </nav>
 
     <h2>What It Does</h2>
-    <p>GPTandME counts prompts you send on supported AI chat websites, shows usage totals in the toolbar badge and popup, and stores the data locally in Chrome storage on your device.</p>
+    <p>GPTandME counts prompts you send on supported AI chat websites, shows the combined daily count in the toolbar badge and combined plus per-service usage totals in the popup, and stores the data locally in Chrome storage on your device.</p>
 
     <h2>Features</h2>
     <ul>
       <li>Counts user-sent prompts on supported AI chat websites.</li>
       <li>Shows today, week, month, last 24 hours, streak, total, sessions, and model breakdown when available.</li>
+      <li>Shows today's and all-time counts for ChatGPT, Claude, Gemini, Perplexity, and Grok.</li>
       <li>Includes an optional in-page counter for today's count.</li>
-      <li>Supports CSV export and import for your local usage data.</li>
+      <li>Downloads and restores complete JSON backups.</li>
+      <li>Exports <code>date,provider,model,count</code> CSV usage files and continues to import legacy GPTandME CSV files by merging their counts.</li>
       <li>Provides reset controls for today's count or all stored counts.</li>
     </ul>
 
     <h2>Supported Services</h2>
-    <p>Supported services currently include ChatGPT, Claude, Gemini, and Perplexity. GPTandME is an independent tool and is not affiliated with, endorsed by, or sponsored by those services or their owners.</p>
+    <p>Supported services currently include the HTTPS browser chat sites for ChatGPT, Claude, Gemini, Perplexity, and Grok. Grok counting is optional and begins only after you enable access to grok.com in the popup. Service counts, model labels when available, and other usage summaries stay on your device. GPTandME does not store prompt text or a page's full URL path.</p>
+    <p>GPTandME is browser-only. It does not count Claude Code, native desktop apps, command-line tools, or direct provider API usage outside the supported browser chat sites, and it cannot be enabled in Chrome Incognito mode. GPTandME is an independent tool and is not affiliated with, endorsed by, or sponsored by those services or their owners.</p>
   </body>
 </html>

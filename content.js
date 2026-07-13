@@ -6,6 +6,7 @@ const matchedSiteEntry = Object.entries(SITES).find(([, config]) =>
 );
 const siteEntry = matchedSiteEntry || [location.hostname, { sendButtons: [] }];
 const [siteName, siteConfig] = siteEntry;
+const provider = siteConfig.provider || 'unknown';
 const countDomEvents = !siteConfig.countViaNetwork || siteConfig.domFallback;
 
 function rememberCurrentSite() {
@@ -21,24 +22,41 @@ window.addEventListener?.('pageshow', rememberCurrentSite);
 
 // ---------- MODEL DETECTION ----------
 
-// Best signal: intercept ChatGPT fetches to learn the model from the request.
-// inject.js runs in the page context and dispatches a custom event with the
-// model slug read straight from the request body.
-if (
-  (siteName === 'chatgpt.com' || siteName === 'chat.openai.com') &&
-  typeof chrome !== 'undefined' &&
-  chrome.runtime?.getURL
-) {
-  const s = document.createElement('script');
-  s.src = chrome.runtime.getURL('inject.js');
-  s.onload = () => s.remove();
-  (document.head || document.documentElement).appendChild(s);
-}
+// The manifest installs inject.js in the page's MAIN world at document_start.
+// It reports only opaque send IDs and model metadata through these events.
 
 let lastDetectedModel = null;
+let pendingDomFallback = null;
+let sendSequence = 0;
+
+function randomId() {
+  try {
+    if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID();
+  } catch (_) {
+    // Fall through to a non-sensitive per-document random ID.
+  }
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+}
+
+const pageSessionId = `${provider}:page-${randomId()}`;
 
 window.addEventListener('__gptandme_model', (e) => {
-  lastDetectedModel = e.detail; // e.g. "gpt-4o", "o3"
+  lastDetectedModel = normalizeDetectedModel(e.detail); // e.g. "gpt-4o", "o3"
+});
+
+window.addEventListener('__gptandme_send', (event) => {
+  const detail = event?.detail;
+  if (!detail || detail.provider !== provider || !detail.eventId) return;
+  if (pendingDomFallback !== null && typeof clearTimeout === 'function') {
+    clearTimeout(pendingDomFallback);
+    pendingDomFallback = null;
+  }
+  tick({
+    eventId: String(detail.eventId).slice(0, 160),
+    model: normalizeDetectedModel(detail.model) || detectModel(),
+    reason: `${provider}-network`,
+    throttle: false,
+  });
 });
 
 // Fallback: data-message-model-slug on the latest assistant response
@@ -54,48 +72,114 @@ function modelFromURL() {
   catch (_) { return null; }
 }
 
+function normalizeDetectedModel(value) {
+  const text = String(value ?? '')
+    .replace(/^model\s*:\s*/i, '')
+    .trim()
+    .toLowerCase();
+  if (!text) return null;
+  const normalized = text
+    .replace(/[–—]/g, '-')
+    .replace(/[^a-z0-9._:/+\-]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 80);
+  return normalized || null;
+}
+
+function modelFromProviderDom() {
+  if (provider !== 'claude') return null;
+  const selector = 'button[data-testid="model-selector-dropdown"]';
+  const button = document.querySelectorAll(selector)[0];
+  if (!button) return null;
+  return normalizeDetectedModel(button.getAttribute('aria-label') || button.textContent);
+}
+
 function detectModel() {
-  return lastDetectedModel || modelFromSlugAttr() || modelFromURL() || 'unknown';
+  return (
+    lastDetectedModel ||
+    normalizeDetectedModel(modelFromSlugAttr()) ||
+    modelFromProviderDom() ||
+    normalizeDetectedModel(modelFromURL()) ||
+    'unknown'
+  );
 }
 
 // ---------- COUNTING ----------
 let lastTick = 0;
 const throttleMs = 400;
+const domFallbackDelayMs = 1500;
 
 function sessionId() {
-  const conversationMatch = location.pathname.match(/\/c\/[^/?#]+/);
-  const pathKey = conversationMatch ? conversationMatch[0] : location.pathname || '/';
-  return `${siteName}:${pathKey}`;
+  return pageSessionId;
 }
 
-function tick() {
+function tick({
+  eventId = `${pageSessionId}:send-${++sendSequence}`,
+  model = detectModel(),
+  reason = 'dom-event',
+  throttle = true,
+} = {}) {
   const now = Date.now();
-  if (now - lastTick < throttleMs) return;
+  if (throttle && now - lastTick < throttleMs) return;
   lastTick = now;
-  const model = detectModel();
-  chrome.runtime?.sendMessage?.({
+  const request = chrome.runtime?.sendMessage?.({
     type: "tick",
+    eventId,
     model,
+    provider,
     site: siteName,
     sessionId: sessionId(),
-    reason: 'dom-event',
+    reason,
   });
+  request?.catch?.(() => {});
+}
+
+function recordDomSend() {
+  if (!siteConfig.countViaPageNetwork && !siteConfig.countViaNetwork) {
+    tick();
+    return;
+  }
+
+  if (pendingDomFallback !== null) return;
+  if (typeof setTimeout !== 'function') {
+    tick({ reason: `${provider}-dom-fallback` });
+    return;
+  }
+
+  pendingDomFallback = setTimeout(() => {
+    pendingDomFallback = null;
+    tick({ reason: `${provider}-dom-fallback` });
+  }, domFallbackDelayMs);
 }
 
 function inComposer(el) {
-  if (!el || !(el instanceof Element)) return false;
-  if (el.closest('form')) return true;
-  if (el.closest('[data-testid*="composer"], [data-qa*="composer"]')) return true;
-  if (el.closest('textarea, [contenteditable="true"]')) return true;
-  return false;
+  return Boolean(composerRoot(el));
 }
 
 function composerRoot(el) {
   if (!el || !(el instanceof Element)) return null;
-  const root = el.closest('form') || el.closest('[data-testid*="composer"], [data-qa*="composer"]');
-  if (root) return root;
-  const input = el.closest('textarea, [contenteditable="true"]');
-  return input?.parentElement || input;
+  const inputSelector = (siteConfig.composerInputs || ['textarea', '[contenteditable="true"]']).join(', ');
+  const semanticRoot = el.closest?.('form, [role="form"], [data-testid*="composer"]');
+  if (semanticRoot) {
+    const containsInput = Boolean(
+      semanticRoot.matches?.(inputSelector) || semanticRoot.querySelector?.(inputSelector)
+    );
+    if (containsInput && activeSendButton(semanticRoot)) return semanticRoot;
+  }
+
+  let root = el;
+  let depth = 0;
+
+  while (root && depth < 32 && root !== document.documentElement) {
+    const containsInput = Boolean(
+      root.matches?.(inputSelector) || root.querySelector?.(inputSelector)
+    );
+    if (containsInput && activeSendButton(root)) return root;
+    root = root.parentElement;
+    depth += 1;
+  }
+
+  return null;
 }
 
 function attrIncludes(el, attr, terms) {
@@ -124,26 +208,89 @@ function hasBusyControl(root) {
     .some(isBusyControl);
 }
 
+function isQueueControl(el) {
+  const queueTerms = ['queue'];
+  return attrIncludes(el, 'data-testid', queueTerms) || attrIncludes(el, 'aria-label', queueTerms);
+}
+
 function activeSendButton(root) {
   const selector = siteConfig.sendButtons.join(', ');
   if (!selector) return null;
   return [...root.querySelectorAll(selector)].find((button) => !isDisabledControl(button)) || null;
 }
 
+function composerHasUserInput(root) {
+  const inputSelector = (siteConfig.composerInputs || ['textarea', '[contenteditable="true"]']).join(', ');
+  const inputs = [
+    ...(root.matches?.(inputSelector) ? [root] : []),
+    ...root.querySelectorAll(inputSelector),
+  ];
+  if (inputs.some((input) => {
+    const value = 'value' in input ? input.value : input.textContent;
+    return typeof value === 'string' && value.trim().length > 0;
+  })) {
+    return true;
+  }
+
+  return Boolean(root.querySelector(
+    '[data-testid*="attachment"], [data-qa*="attachment"], [aria-label*="Remove file"], [aria-label*="Remove attachment"]'
+  ));
+}
+
 function canSendFrom(el) {
   const root = composerRoot(el);
-  if (!root || hasBusyControl(root)) return false;
-  return Boolean(activeSendButton(root));
+  if (!root || !composerHasUserInput(root)) return false;
+  const sendButton = activeSendButton(root);
+  if (!sendButton) return false;
+  return isQueueControl(sendButton) || !hasBusyControl(root);
+}
+
+function isVisibleSuggestionMenu(menu) {
+  if (menu.hidden || menu.getAttribute?.('aria-hidden') === 'true') return false;
+  if (menu.id === 'typeahead-menu') return true;
+  if (typeof menu.getBoundingClientRect !== 'function') return false;
+  const rect = menu.getBoundingClientRect();
+  return rect.width > 0 && rect.height > 0;
+}
+
+function hasActiveSuggestionMenu(target) {
+  const root = composerRoot(target);
+  const menus = document.querySelectorAll('#typeahead-menu, [role="listbox"]');
+  const scopedMenus = new Set(root
+    ? [...root.querySelectorAll('#typeahead-menu, [role="listbox"]')]
+    : []);
+  const controlledIds = new Set();
+  const controls = [target, ...(root?.querySelectorAll?.('[aria-controls]') || [])];
+  for (const control of controls) {
+    for (const id of String(control?.getAttribute?.('aria-controls') || '').split(/\s+/)) {
+      if (id) controlledIds.add(id);
+    }
+  }
+
+  return [...menus].some((menu) => {
+    if (!isVisibleSuggestionMenu(menu)) return false;
+    if (provider === 'perplexity' && menu.id === 'typeahead-menu') return true;
+    return scopedMenus.has(menu) || controlledIds.has(menu.id);
+  });
 }
 
 // capture so React can't swallow events before us
 if (countDomEvents) {
-  document.addEventListener('submit', (e) => { if (inComposer(e.target) && canSendFrom(e.target)) tick(); }, true);
-  document.addEventListener('keydown', (e) => { if (inComposer(e.target) && shouldCountKey(e) && canSendFrom(e.target)) tick(); }, true);
+  document.addEventListener('submit', (e) => { if (inComposer(e.target) && canSendFrom(e.target)) recordDomSend(); }, true);
+  document.addEventListener('keydown', (e) => {
+    if (
+      inComposer(e.target) &&
+      shouldCountKey(e) &&
+      !hasActiveSuggestionMenu(e.target) &&
+      canSendFrom(e.target)
+    ) {
+      recordDomSend();
+    }
+  }, true);
   document.addEventListener('click', (e) => {
     const selector = siteConfig.sendButtons.join(', ');
     const btn = selector && (e.target instanceof Element) && e.target.closest(selector);
-    if (btn && inComposer(btn) && !isDisabledControl(btn) && canSendFrom(btn)) tick();
+    if (btn && inComposer(btn) && !isDisabledControl(btn) && canSendFrom(btn)) recordDomSend();
   }, true);
 }
 
@@ -157,6 +304,7 @@ let pageCounterCount = 0;
 let pageCounterDate = todayKey();
 let pageCounterHost = null;
 let pageCounterShadow = null;
+const pageCounterShadows = new WeakMap();
 let pageCounterObserver = null;
 let pageCounterInterval = null;
 let pageCounterRenderQueued = false;
@@ -316,14 +464,19 @@ function queuePageCounterRender() {
 }
 
 function getPageCounterShadow(host) {
-  if (host.shadowRoot) return host.shadowRoot;
+  const existing = pageCounterShadows.get(host);
+  if (existing) return existing;
 
   try {
-    return host.attachShadow?.({ mode: 'open' }) || null;
+    const shadow = host.attachShadow?.({ mode: 'closed' }) || null;
+    if (shadow) pageCounterShadows.set(host, shadow);
+    return shadow;
   } catch (_) {
     host.remove();
     const replacement = createPageCounterHost();
-    return replacement.attachShadow?.({ mode: 'open' }) || null;
+    const shadow = replacement.attachShadow?.({ mode: 'closed' }) || null;
+    if (shadow) pageCounterShadows.set(replacement, shadow);
+    return shadow;
   }
 }
 
@@ -369,10 +522,11 @@ function keepPageCounterAttached() {
 }
 
 function startPageCounterObserver() {
-  if (pageCounterObserver || !window.MutationObserver || !document.documentElement) return;
+  const mountTarget = pageCounterMountTarget();
+  if (pageCounterObserver || !window.MutationObserver || !mountTarget) return;
 
   pageCounterObserver = new MutationObserver(keepPageCounterAttached);
-  pageCounterObserver.observe(document.documentElement, { childList: true, subtree: true });
+  pageCounterObserver.observe(mountTarget, { childList: true });
 }
 
 function startPageCounterInterval() {

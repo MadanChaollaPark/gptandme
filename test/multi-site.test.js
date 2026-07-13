@@ -24,6 +24,15 @@ describe('SITES config', () => {
     assert.ok('www.perplexity.ai' in SITES);
   });
 
+  it('includes grok.com', () => {
+    assert.ok('grok.com' in SITES);
+  });
+
+  it('maps grok.com to the canonical Grok provider', () => {
+    assert.deepEqual(SITES['grok.com'].hosts, ['grok.com']);
+    assert.equal(SITES['grok.com'].provider, 'grok');
+  });
+
   it('every site has a non-empty sendButtons array', () => {
     for (const [site, config] of Object.entries(SITES)) {
       assert.ok(Array.isArray(config.sendButtons), `${site} sendButtons should be array`);
@@ -57,5 +66,11 @@ describe('SITES config', () => {
     assert.equal(Boolean(SITES['claude.ai'].countViaNetwork), false);
     assert.equal(Boolean(SITES['gemini.google.com'].countViaNetwork), false);
     assert.equal(Boolean(SITES['www.perplexity.ai'].countViaNetwork), false);
+    assert.equal(Boolean(SITES['grok.com'].countViaNetwork), false);
+  });
+
+  it('counts Grok sends via the page-context interceptor with a DOM fallback', () => {
+    assert.equal(SITES['grok.com'].countViaPageNetwork, true);
+    assert.equal(SITES['grok.com'].domFallback, true);
   });
 });

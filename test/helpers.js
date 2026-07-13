@@ -22,20 +22,30 @@ function selectorMatchesSingle(el, selector) {
     return el.tagName.toLowerCase() === selector.toLowerCase();
   }
 
-  const attrMatch = /^(?:(\w+))?\[([\w-]+)(\*?=)?(?:"([^"]*)"|'([^']*)'|([^\]]+))?\]$/.exec(selector);
-  if (!attrMatch) return false;
+  const compoundMatch = /^(?:(\w+))?((?:\[[^\]]+\])+)$/.exec(selector);
+  if (!compoundMatch) return false;
 
-  const [, tag, attr, op, doubleQuoted, singleQuoted, unquoted] = attrMatch;
+  const [, tag, attributes] = compoundMatch;
   if (tag && el.tagName.toLowerCase() !== tag.toLowerCase()) return false;
 
-  const value = el.getAttribute(attr);
-  if (value === null) return false;
-  if (!op) return true;
+  const attrMatches = [...attributes.matchAll(
+    /\[([\w-]+)(\*?=)?(?:"([^"]*)"|'([^']*)'|([^\]]+))?\]/g
+  )];
+  if (!attrMatches.length || attrMatches.map((match) => match[0]).join('') !== attributes) {
+    return false;
+  }
 
-  const expected = doubleQuoted ?? singleQuoted ?? unquoted ?? '';
-  if (op === '=') return value === expected;
-  if (op === '*=') return value.includes(expected);
-  return false;
+  return attrMatches.every((match) => {
+    const [, attr, op, doubleQuoted, singleQuoted, unquoted] = match;
+    const value = el.getAttribute(attr);
+    if (value === null) return false;
+    if (!op) return true;
+
+    const expected = doubleQuoted ?? singleQuoted ?? unquoted ?? '';
+    if (op === '=') return value === expected;
+    if (op === '*=') return value.includes(expected);
+    return false;
+  });
 }
 
 function selectorMatches(el, selector) {
@@ -148,7 +158,8 @@ class TestElement {
     return this.querySelectorAll(selector)[0] || null;
   }
 
-  attachShadow() {
+  attachShadow(options = {}) {
+    this.shadowMode = options.mode || 'open';
     this.shadowRoot = new TestElement('#shadow-root');
     this.shadowRoot.ownerDocument = this.ownerDocument;
     return this.shadowRoot;
@@ -157,6 +168,12 @@ class TestElement {
   addEventListener(type, callback) {
     if (!this.listeners.has(type)) this.listeners.set(type, []);
     this.listeners.get(type).push(callback);
+  }
+
+  dispatch(type, event = { target: this }) {
+    return Promise.all(
+      (this.listeners.get(type) || []).map((callback) => callback(event))
+    );
   }
 
   click() {
@@ -248,11 +265,14 @@ function createContentScriptHarness(options = {}) {
     pathname = '/chat/test-thread',
     href = `https://${hostname}${pathname}`,
     storageData = null,
+    deferTimers = false,
   } = options;
   const document = createTestDocument();
   const messages = [];
   const windowListeners = new Map();
   const storageChangeListeners = [];
+  const timers = new Map();
+  let nextTimerId = 1;
   let now = 1000;
   const chrome = {
     runtime: {
@@ -303,6 +323,18 @@ function createContentScriptHarness(options = {}) {
     chrome,
   };
 
+  if (deferTimers) {
+    sandbox.setTimeout = (callback) => {
+      const id = nextTimerId;
+      nextTimerId += 1;
+      timers.set(id, callback);
+      return id;
+    };
+    sandbox.clearTimeout = (id) => {
+      timers.delete(id);
+    };
+  }
+
   runScript('content.js', sandbox);
 
   return {
@@ -314,6 +346,14 @@ function createContentScriptHarness(options = {}) {
     dispatch(type, event) {
       document.dispatch(type, event);
     },
+    emitWindowEvent(type, event) {
+      for (const callback of windowListeners.get(type) || []) callback(event);
+    },
+    runTimers() {
+      const callbacks = [...timers.values()];
+      timers.clear();
+      for (const callback of callbacks) callback();
+    },
     emitStorageChange(changes, namespace = 'local') {
       for (const callback of storageChangeListeners) {
         callback(changes, namespace);
@@ -322,7 +362,7 @@ function createContentScriptHarness(options = {}) {
   };
 }
 
-function createPopupScriptHarness(storageData = {}) {
+function createPopupScriptHarness(storageData = {}, options = {}) {
   const document = createTestDocument([
     'today',
     'week',
@@ -335,10 +375,14 @@ function createPopupScriptHarness(storageData = {}) {
     'sessions',
     'modelSection',
     'modelBreakdown',
+    'providerSection',
+    'providerBreakdown',
     'sparkline',
     'statusValue',
     'currentSite',
     'pageCounterToggle',
+    'grokAccessToggle',
+    'grokAccessState',
     'version',
     'lastCounted',
     'lastReason',
@@ -348,10 +392,18 @@ function createPopupScriptHarness(storageData = {}) {
     'resetToday',
     'resetAll',
     'downloadCsv',
+    'downloadJson',
+    'restoreJson',
+    'restoreJsonInput',
   ]);
   const objectUrls = new Map();
   const revokedUrls = [];
   const sets = [];
+  const runtimeMessages = [];
+  const confirmationMessages = [];
+  const permissionRequests = [];
+  const confirmationResponses = [...(options.confirmationResponses || [])];
+  let grokPermissionGranted = Boolean(options.grokPermissionGranted);
   let nextUrlId = 0;
   class TestURL extends URL {}
   TestURL.createObjectURL = function createObjectURL(blob) {
@@ -375,18 +427,72 @@ function createPopupScriptHarness(storageData = {}) {
     },
     URL: TestURL,
     document,
+    confirm(message) {
+      confirmationMessages.push(String(message));
+      if (confirmationResponses.length) return confirmationResponses.shift();
+      return options.confirmationResponse ?? true;
+    },
     chrome: {
       runtime: {
         getManifest() {
           return { version: 'test-version' };
         },
         sendMessage(message, callback) {
+          runtimeMessages.push(message);
+          if (options.runtimeResponses && Object.hasOwn(options.runtimeResponses, message.type)) {
+            callback?.(options.runtimeResponses[message.type]);
+            return;
+          }
+          if (message.type === 'exportData') {
+            callback?.({
+              ok: true,
+              export: options.exportPayload || {
+                schemaVersion: 2,
+                storageSchemaVersion: 2,
+                exportedAt: '2026-01-02T03:04:05.000Z',
+                extensionVersion: 'test-version',
+                data: { ...storageData },
+              },
+            });
+            return;
+          }
           if (message.type === 'importData') {
-            Object.assign(storageData, message.payload.data);
+            Object.assign(storageData, message.payload.data || message.payload);
             callback?.({ ok: true, import: { total: storageData.total || 0 } });
             return;
           }
+          if (message.type === 'importUsage') {
+            Object.assign(storageData, shared.mergeUsageData(storageData, message.data));
+            callback?.({ ok: true, import: { total: storageData.total || 0 } });
+            return;
+          }
+          if (message.type === 'resetToday' || message.type === 'resetAll') {
+            callback?.({ ok: true, reset: { total: 0 } });
+            return;
+          }
+          if (message.type === 'syncGrokAccess') {
+            callback?.({ ok: true, enabled: grokPermissionGranted });
+            return;
+          }
           callback?.({ ok: false, error: 'unknown message' });
+        },
+      },
+      permissions: {
+        contains(details, callback) {
+          permissionRequests.push({ method: 'contains', details: JSON.parse(JSON.stringify(details)) });
+          callback(grokPermissionGranted);
+        },
+        request(details, callback) {
+          permissionRequests.push({ method: 'request', details: JSON.parse(JSON.stringify(details)) });
+          const granted = options.grokPermissionRequestResult ?? true;
+          if (granted) grokPermissionGranted = true;
+          callback(granted);
+        },
+        remove(details, callback) {
+          permissionRequests.push({ method: 'remove', details: JSON.parse(JSON.stringify(details)) });
+          const removed = grokPermissionGranted;
+          grokPermissionGranted = false;
+          callback(removed);
         },
       },
       storage: {
@@ -421,12 +527,28 @@ function createPopupScriptHarness(storageData = {}) {
     document,
     objectUrls,
     revokedUrls,
+    runtimeMessages,
+    confirmationMessages,
+    permissionRequests,
     sets,
     fireDOMContentLoaded() {
       document.dispatch('DOMContentLoaded');
     },
     click(id) {
       document.getElementById(id).click();
+    },
+    async change(id, checked) {
+      const element = document.getElementById(id);
+      element.checked = Boolean(checked);
+      await element.dispatch('change', { target: element });
+    },
+    async selectFile(id, text, name = 'data.txt') {
+      const target = {
+        files: [{ name, text: async () => text }],
+        value: name,
+      };
+      await document.getElementById(id).dispatch('change', { target });
+      return target;
     },
     lastDownloadText() {
       const download = document.downloads.at(-1);
