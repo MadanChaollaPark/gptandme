@@ -29,7 +29,11 @@ function nestedTotal(day = {}) {
   ), 0);
 }
 
-function loadBackground({ initialStorage = {}, manifestVersion = '9.9.9' } = {}) {
+function loadBackground({
+  initialStorage = {},
+  manifestVersion = '9.9.9',
+  grokAccessGranted = true,
+} = {}) {
   const storage = clone(initialStorage);
   const onInstalled = chromeEvent();
   const onStartup = chromeEvent();
@@ -47,6 +51,11 @@ function loadBackground({ initialStorage = {}, manifestVersion = '9.9.9' } = {})
     alarms: {
       create() {},
       onAlarm,
+    },
+    permissions: {
+      async contains({ origins }) {
+        return Boolean(grokAccessGranted && origins?.includes('https://grok.com/*'));
+      },
     },
     runtime: {
       getManifest() {
@@ -102,6 +111,41 @@ function sendMessage(env, message, sender = {}) {
 }
 
 describe('background provider/model persistence', () => {
+  it('persists content-bridge fixtures for every supported browser provider', async () => {
+    const env = loadBackground();
+    const fixtures = [
+      ['claude.ai', 1, 'claude:network-1', 'sonnet-5-medium', 'claude-network'],
+      ['gemini.google.com', 2, 'gemini:dom-1', 'unknown', 'dom-event'],
+      ['perplexity.ai', 3, 'perplexity:network-1', 'sonar-pro', 'perplexity-network'],
+      ['grok.com', 4, 'grok:network-1', 'grok-4', 'grok-network'],
+      ['chatgpt.com', 5, 'chatgpt:dom-1', 'gpt-5.5', 'chatgpt-dom-fallback'],
+    ];
+
+    for (const [host, tabId, eventId, model, reason] of fixtures) {
+      const response = clone(await sendMessage(env, {
+        type: 'tick',
+        eventId,
+        model,
+        reason,
+        sessionId: `${host}:page-fixture`,
+      }, { tab: { id: tabId, url: `https://${host}/` } }));
+      assert.deepEqual(response, { ok: true, counted: true });
+    }
+
+    const day = shared.todayKey();
+    assert.equal(env.storage.byDate[day], fixtures.length);
+    assert.equal(env.storage.byModel[day]['sonnet-5-medium'], 1);
+    assert.equal(env.storage.byModel[day].unknown, 1);
+    assert.equal(env.storage.byModel[day]['sonar-pro'], 1);
+    assert.equal(env.storage.byModel[day]['grok-4'], 1);
+    assert.equal(env.storage.byModel[day]['gpt-5.5'], 1);
+    assert.equal(env.storage.byProviderModel[day].claude['sonnet-5-medium'], 1);
+    assert.equal(env.storage.byProviderModel[day].gemini.unknown, 1);
+    assert.equal(env.storage.byProviderModel[day].perplexity['sonar-pro'], 1);
+    assert.equal(env.storage.byProviderModel[day].grok['grok-4'], 1);
+    assert.equal(env.storage.byProviderModel[day].chatgpt['gpt-5.5'], 1);
+  });
+
   it('attributes and acknowledges Grok ticks from the sender tab with stable dedupe', async () => {
     const env = loadBackground();
     const message = {

@@ -203,6 +203,29 @@ describe('Claude request-body hardening', () => {
 });
 
 describe('Claude transport and endpoint hardening', () => {
+  it('rejects method and destination lookalikes before reading request bodies', async () => {
+    const environment = createInjectEnvironment();
+    let bodyReads = 0;
+    class ProbeBlob extends Blob {
+      async text() {
+        bodyReads += 1;
+        return claudeBody('must-not-be-inspected');
+      }
+    }
+    const body = new ProbeBlob(['private probe body'], { type: 'application/json' });
+
+    await callFetch(
+      environment,
+      `https://claude.ai.evil.example${CLAUDE_ENDPOINT}`,
+      body
+    );
+    await callFetch(environment, CLAUDE_ENDPOINT, body, 'GET');
+
+    assert.equal(bodyReads, 0);
+    assert.equal(environment.fetchCalls.length, 2);
+    assert.deepEqual(sendEvents(environment), []);
+  });
+
   it('detects a Claude XMLHttpRequest POST and preserves native XHR behavior', async () => {
     const environment = createInjectEnvironment();
     const xhr = new environment.window.XMLHttpRequest();

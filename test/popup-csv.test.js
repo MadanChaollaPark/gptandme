@@ -126,3 +126,44 @@ describe('CSV parsing helpers', () => {
     });
   });
 });
+
+describe('popup CSV merge safety', () => {
+  it('previews overlap and warns that importing twice duplicates counts', async () => {
+    const harness = createPopupScriptHarness({
+      byDate: { '2026-02-03': 2 },
+      byModel: { '2026-02-03': { 'gpt-4o': 2 } },
+    });
+    harness.fireDOMContentLoaded();
+
+    await harness.selectFile('importCsvInput', [
+      'date,provider,model,count',
+      '2026-02-03,chatgpt,gpt-4o,3',
+      '2026-02-04,claude,claude-sonnet-4,1',
+    ].join('\n'), 'usage.csv');
+
+    assert.equal(harness.confirmationMessages.length, 1);
+    assert.match(harness.confirmationMessages[0], /1 existing date\(s\) overlap/);
+    assert.match(harness.confirmationMessages[0], /3 prompts will be added/);
+    assert.match(harness.confirmationMessages[0], /same CSV again duplicates/);
+    assert.equal(harness.runtimeMessages.some((message) => message.type === 'importUsage'), true);
+    assert.match(harness.document.getElementById('importStatus').textContent, /Merged 4 prompts/);
+    assert.equal(harness.document.getElementById('importStatus').getAttribute('data-state'), 'success');
+  });
+
+  it('does not send an import when the user cancels the merge', async () => {
+    const harness = createPopupScriptHarness({}, { confirmationResponse: false });
+    harness.fireDOMContentLoaded();
+
+    await harness.selectFile(
+      'importCsvInput',
+      'date,provider,model,count\n2026-02-04,claude,claude-sonnet-4,1',
+      'usage.csv'
+    );
+
+    assert.equal(harness.runtimeMessages.some((message) => message.type === 'importUsage'), false);
+    assert.equal(
+      harness.document.getElementById('importStatus').textContent,
+      'CSV merge canceled. No data changed.'
+    );
+  });
+});

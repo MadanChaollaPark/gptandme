@@ -12,9 +12,7 @@
   const nativeXhrOpen = window.XMLHttpRequest?.prototype?.open;
   const nativeXhrSend = window.XMLHttpRequest?.prototype?.send;
   const hostname = location.hostname.toLowerCase();
-  const fallbackEvents = new Map();
   const xhrRequests = new WeakMap();
-  const FALLBACK_EVENT_TTL_MS = 1000;
 
   function parseUrl(input) {
     try {
@@ -43,6 +41,17 @@
     return text;
   }
 
+  function safeModel(value) {
+    const text = String(value ?? '').trim().toLowerCase();
+    if (!text) return null;
+    const normalized = text
+      .replace(/[–—]/g, '-')
+      .replace(/[^a-z0-9._:/+\-]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 80);
+    return normalized || null;
+  }
+
   function randomId() {
     try {
       if (crypto.randomUUID) return crypto.randomUUID();
@@ -52,28 +61,8 @@
     return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
   }
 
-  function hashText(value) {
-    const text = String(value ?? '');
-    let hash = 0x811c9dc5;
-    for (let index = 0; index < text.length; index += 1) {
-      hash ^= text.charCodeAt(index);
-      hash = Math.imul(hash, 0x01000193);
-    }
-    return (hash >>> 0).toString(36);
-  }
-
-  function fallbackEventId(provider, rawBody) {
-    const now = Date.now();
-    const fingerprint = `${provider}:${hashText(rawBody)}`;
-    const existing = fallbackEvents.get(fingerprint);
-    if (existing && now - existing.at < FALLBACK_EVENT_TTL_MS) return existing.id;
-
-    const id = `${provider}:local-${randomId()}`;
-    fallbackEvents.set(fingerprint, { id, at: now });
-    for (const [key, value] of fallbackEvents) {
-      if (now - value.at >= FALLBACK_EVENT_TTL_MS) fallbackEvents.delete(key);
-    }
-    return id;
+  function fallbackEventId(provider) {
+    return `${provider}:local-${randomId()}`;
   }
 
   function requestEventId(provider, body, rawBody) {
@@ -97,7 +86,29 @@
       const id = safeId(candidate);
       if (id) return `${provider}:${id}`;
     }
-    return fallbackEventId(provider, rawBody);
+    return fallbackEventId(provider);
+  }
+
+  function modelFromPayload(body = {}, params = {}) {
+    const candidates = [
+      body.model,
+      body.model?.slug,
+      body.model?.name,
+      body.model_name,
+      body.modelName,
+      body.model_slug,
+      body.model_id,
+      body.metadata?.model,
+      body.session?.model,
+      body.item?.model,
+      body.item?.x_grok?.model,
+      params.model,
+      params.model?.slug,
+      params.model?.name,
+      params.model_name,
+      params.modelName,
+    ];
+    return candidates.find(value => typeof value === 'string' && value.trim()) || null;
   }
 
   function emitSend(provider, eventId, model = null) {
@@ -106,25 +117,24 @@
     window.dispatchEvent(new CustomEvent('__gptandme_send', {
       detail: {
         eventId: id,
-        model: safeId(model),
+        model: safeModel(model),
         provider,
       },
     }));
   }
 
   function isChatGptPromptEndpoint(url) {
-    const pathSegments = url?.pathname.split('/').filter(Boolean) || [];
-    const backendIndex = pathSegments.indexOf('backend-api');
-    if (backendIndex === -1) return false;
-    const backendSegments = pathSegments.slice(backendIndex + 1);
-    return backendSegments.includes('conversation') || backendSegments.includes('responses');
+    return /^\/backend-api\/(?:[^/]+\/)?(?:conversation|responses)\/?$/.test(
+      url?.pathname || ''
+    );
   }
 
   function inspectChatGpt(url, method, rawBody) {
     if (!isChatGptPromptEndpoint(url) || method !== 'POST') return;
     const body = parseJson(rawBody);
-    if (body?.model) {
-      window.dispatchEvent(new CustomEvent('__gptandme_model', { detail: body.model }));
+    const model = modelFromPayload(body);
+    if (model) {
+      window.dispatchEvent(new CustomEvent('__gptandme_model', { detail: model }));
     }
   }
 
@@ -155,7 +165,7 @@
     emitSend(
       'claude',
       requestEventId('claude', body, rawBody),
-      body.model || body.model_name
+      modelFromPayload(body, parseJson(body.params) || body.params || {})
     );
   }
 
@@ -213,7 +223,7 @@
     emitSend(
       'perplexity',
       requestEventId('perplexity', { ...body, params }, rawBody),
-      params.model || body.model
+      modelFromPayload(body, params)
     );
   }
 
@@ -230,7 +240,7 @@
     emitSend(
       'perplexity',
       requestEventId('perplexity', { params }, data),
-      params.model
+      modelFromPayload({}, params)
     );
   }
 
@@ -260,7 +270,7 @@
     emitSend(
       'grok',
       requestEventId('grok', body, rawBody),
-      body.modelName || body.model
+      modelFromPayload(body, parseJson(body.params) || body.params || {})
     );
   }
 
@@ -288,7 +298,7 @@
     emitSend(
       'grok',
       requestEventId('grok', event, rawData),
-      event.modelName || event.model || event.item?.model
+      modelFromPayload(event, parseJson(event.params) || event.params || {})
     );
   }
 
@@ -298,6 +308,16 @@
       url &&
       url.hostname.toLowerCase() === 'grok.com' &&
       /^\/ws\/(?:gw|mgw)\/?$/.test(url.pathname)
+    );
+  }
+
+  function isPerplexitySocket(socket) {
+    const url = parseUrl(socket?.url);
+    return Boolean(
+      url &&
+      (url.hostname.toLowerCase() === 'perplexity.ai' ||
+        url.hostname.toLowerCase() === 'www.perplexity.ai') &&
+      /^\/socket\.io\/?$/.test(url.pathname)
     );
   }
 
@@ -367,28 +387,50 @@
     return '';
   }
 
+  function inspectorForTransport(url, method) {
+    const normalizedMethod = String(method || 'GET').toUpperCase();
+    const targetHost = url?.hostname.toLowerCase();
+    if (normalizedMethod !== 'POST') return null;
+
+    if (
+      (hostname === 'chatgpt.com' || hostname === 'chat.openai.com') &&
+      (targetHost === 'chatgpt.com' || targetHost === 'chat.openai.com') &&
+      isChatGptPromptEndpoint(url)
+    ) return inspectChatGpt;
+    if (hostname === 'claude.ai' && targetHost === 'claude.ai' && isClaudePromptEndpoint(url)) {
+      return inspectClaude;
+    }
+    if (
+      (hostname === 'perplexity.ai' || hostname === 'www.perplexity.ai') &&
+      (targetHost === 'perplexity.ai' || targetHost === 'www.perplexity.ai') &&
+      /^\/rest\/sse\/perplexity_ask\/?$/.test(url?.pathname || '')
+    ) return inspectPerplexityFetch;
+    if (
+      hostname === 'grok.com' &&
+      targetHost === 'grok.com' &&
+      /^\/rest\/app-chat\/conversations\/(new|[^/]+\/responses)\/?$/.test(url?.pathname || '')
+    ) return inspectGrok;
+    return null;
+  }
+
   async function inspectTransport(input, method, body) {
     const url = parseUrl(input);
     if (!url) return;
     const normalizedMethod = String(method || input?.method || 'GET').toUpperCase();
+    const inspector = inspectorForTransport(url, normalizedMethod);
+    if (!inspector) return;
     const rawBody = await valueText(body);
-
-    if (hostname === 'chatgpt.com' || hostname === 'chat.openai.com') {
-      inspectChatGpt(url, normalizedMethod, rawBody);
-    } else if (hostname === 'claude.ai') {
-      inspectClaude(url, normalizedMethod, rawBody);
-    } else if (hostname === 'perplexity.ai' || hostname === 'www.perplexity.ai') {
-      inspectPerplexityFetch(url, normalizedMethod, rawBody);
-    } else if (hostname === 'grok.com') {
-      inspectGrok(url, normalizedMethod, rawBody);
-    }
+    inspector(url, normalizedMethod, rawBody);
   }
 
   async function inspectFetch(input, init = {}) {
     const options = init && typeof init === 'object' ? init : {};
     const method = String(options.method || input?.method || 'GET').toUpperCase();
+    const url = parseUrl(input);
+    const inspector = url && inspectorForTransport(url, method);
+    if (!inspector) return;
     const rawBody = await bodyText(input, options);
-    return inspectTransport(input, method, rawBody);
+    inspector(url, method, rawBody);
   }
 
   if (typeof nativeFetch === 'function') {
@@ -428,7 +470,9 @@
           // Never interfere with the site's transport.
         }
       };
-      const shouldInspect = hostname !== 'grok.com' || isGrokGatewaySocket(this);
+      const shouldInspect = hostname === 'grok.com'
+        ? isGrokGatewaySocket(this)
+        : isPerplexitySocket(this);
       if (shouldInspect && typeof data === 'string') inspectData(data);
       else if (shouldInspect) valueText(data).then(inspectData).catch(() => {});
       return nativeWebSocketSend.apply(this, arguments);

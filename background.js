@@ -17,11 +17,35 @@ const {
 const DEDUPE_MS = 2000;
 const EVENT_DEDUPE_TTL_MS = 24 * 60 * 60 * 1000;
 const MAX_RECENT_EVENTS = 500;
+const MAX_RECENT_INCREMENTS = 500;
 const MAX_SESSIONS = 500;
 const UNSAFE_OBJECT_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
 const BADGE_REFRESH_ALARM = 'gptandme-refresh-badge';
 const BADGE_BACKGROUND_COLOR = '#d1242f';
 const BADGE_TEXT_COLOR = '#ffffff';
+const GROK_ORIGIN = 'https://grok.com/*';
+const GROK_CONTENT_SCRIPT_IDS = Object.freeze([
+  'gptandme-grok-main',
+  'gptandme-grok-isolated',
+]);
+const GROK_CONTENT_SCRIPTS = Object.freeze([
+  Object.freeze({
+    id: GROK_CONTENT_SCRIPT_IDS[0],
+    matches: [GROK_ORIGIN],
+    js: ['inject.js'],
+    runAt: 'document_start',
+    world: 'MAIN',
+    persistAcrossSessions: true,
+  }),
+  Object.freeze({
+    id: GROK_CONTENT_SCRIPT_IDS[1],
+    matches: [GROK_ORIGIN],
+    js: ['shared.js', 'content.js'],
+    runAt: 'document_end',
+    world: 'ISOLATED',
+    persistAcrossSessions: true,
+  }),
+]);
 const STORAGE_SCHEMA_VERSION = 2;
 const EXPORT_SCHEMA_VERSION = 2;
 const STORAGE_DEFAULTS = {
@@ -43,22 +67,35 @@ const STORAGE_DEFAULTS = {
   showPageCounter: true,
   lastIncrementKey: null,
   lastIncrementAt: 0,
+  recentIncrements: {},
   recentEvents: {},
 };
-let lastIncrement = { key: null, at: 0 };
 let incrementQueue = Promise.resolve();
+let grokSyncQueue = Promise.resolve();
 
 async function getCounts() {
-  return new Promise(resolve => {
+  return new Promise((resolve, reject) => {
     chrome.storage.local.get(STORAGE_DEFAULTS, data => {
+      const error = chrome.runtime.lastError;
+      if (error) {
+        reject(new Error(`Could not read GPT&Me data: ${error.message || String(error)}`));
+        return;
+      }
       resolve(normalizeStoredData(data));
     });
   });
 }
 
 async function setCounts(data) {
-  return new Promise(resolve => {
-    chrome.storage.local.set(data, resolve);
+  return new Promise((resolve, reject) => {
+    chrome.storage.local.set(data, () => {
+      const error = chrome.runtime.lastError;
+      if (error) {
+        reject(new Error(`Could not save GPT&Me data: ${error.message || String(error)}`));
+        return;
+      }
+      resolve();
+    });
   });
 }
 
@@ -72,18 +109,6 @@ function dedupeRecord(site, sessionId, dedupeKey = sessionId) {
   const now = Date.now();
   const key = `${site || 'unknown'}:${dedupeKey || sessionId || 'unknown'}`;
   return { key, now };
-}
-
-function shouldDedupeRecord(record, storedKey = null, storedAt = 0) {
-  const { key, now } = record;
-  if (lastIncrement.key === key && now - lastIncrement.at < DEDUPE_MS) {
-    return true;
-  }
-  return storedKey === key && now - Number(storedAt || 0) < DEDUPE_MS;
-}
-
-function rememberDedupeRecord(record) {
-  lastIncrement = { key: record.key, at: record.now };
 }
 
 function isObject(value) {
@@ -191,6 +216,18 @@ function normalizeRecentEvents(value, now = Date.now()) {
   return Object.fromEntries(entries.slice(0, MAX_RECENT_EVENTS));
 }
 
+function normalizeRecentIncrements(value, now = Date.now()) {
+  const entries = [];
+  for (const [rawKey, rawAt] of Object.entries(cloneObject(value))) {
+    const key = safeOpaqueId(rawKey, '');
+    const at = Number(rawAt);
+    if (!key || !Number.isFinite(at) || at <= 0 || now - at >= DEDUPE_MS) continue;
+    entries.push([key, at]);
+  }
+  entries.sort((left, right) => right[1] - left[1]);
+  return Object.fromEntries(entries.slice(0, MAX_RECENT_INCREMENTS));
+}
+
 function safeString(value, fallback = 'unknown', maxLength = 256) {
   const text = String(value ?? '').trim();
   return (text || fallback).slice(0, maxLength);
@@ -244,6 +281,10 @@ function normalizeStoredData(data = {}) {
     showPageCounter: data.showPageCounter !== false,
     lastIncrementKey: data.lastIncrementKey ? safeOpaqueId(data.lastIncrementKey) : null,
     lastIncrementAt: Number(data.lastIncrementAt || 0),
+    recentIncrements: normalizeRecentIncrements({
+      ...cloneObject(data.recentIncrements),
+      ...(data.lastIncrementKey ? { [data.lastIncrementKey]: data.lastIncrementAt } : {}),
+    }),
     recentEvents: normalizeRecentEvents(data.recentEvents),
   };
 }
@@ -342,13 +383,54 @@ async function incrementNow(
   const dedupe = dedupeRecord(normalizedSite, normalizedSessionId, dedupeKey);
   const data = await getCounts();
   const recentEvents = normalizeRecentEvents(data.recentEvents, dedupe.now);
+  const recentIncrements = normalizeRecentIncrements(data.recentIncrements, dedupe.now);
 
   if (stableEventKey) {
     if (recentEvents[stableEventKey]) return false;
     recentEvents[stableEventKey] = dedupe.now;
   } else {
-    if (shouldDedupeRecord(dedupe, data.lastIncrementKey, data.lastIncrementAt)) return false;
-    rememberDedupeRecord(dedupe);
+    if (recentIncrements[dedupe.key]) {
+      if (
+        provider === 'chatgpt' &&
+        reason === 'chatgpt-network' &&
+        normalizedModel !== 'unknown' &&
+        data.lastIncrementKey === dedupe.key &&
+        data.lastCountReason === 'chatgpt-dom-fallback' &&
+        data.lastCountModel !== normalizedModel &&
+        data.lastCountSessionId === normalizedSessionId
+      ) {
+        const day = todayKey();
+        const previousModel = normalizeModelName(data.lastCountModel);
+        const previousCount = data.byModel[day]?.[previousModel] || 0;
+        const providerPreviousCount = data.byProviderModel[day]?.chatgpt?.[previousModel] || 0;
+        if (previousCount > 0 && providerPreviousCount > 0) {
+          if (previousCount === 1) delete data.byModel[day][previousModel];
+          else data.byModel[day][previousModel] = previousCount - 1;
+          data.byModel[day][normalizedModel] = (data.byModel[day][normalizedModel] || 0) + 1;
+
+          if (providerPreviousCount === 1) {
+            delete data.byProviderModel[day].chatgpt[previousModel];
+          } else {
+            data.byProviderModel[day].chatgpt[previousModel] = providerPreviousCount - 1;
+          }
+          data.byProviderModel[day].chatgpt[normalizedModel] = (
+            data.byProviderModel[day].chatgpt[normalizedModel] || 0
+          ) + 1;
+
+          const session = data.sessions[normalizedSessionId];
+          if (session) session.lastModel = normalizedModel;
+          await setCounts({
+            byModel: data.byModel,
+            byProviderModel: data.byProviderModel,
+            sessions: data.sessions,
+            lastCountReason: 'chatgpt-network-upgrade',
+            lastCountModel: normalizedModel,
+          });
+        }
+      }
+      return false;
+    }
+    recentIncrements[dedupe.key] = dedupe.now;
   }
 
   const { byDate, byModel, byProviderModel, byHour, sessions, total } = data;
@@ -390,7 +472,11 @@ async function incrementNow(
     total: newTotal,
     ...(stableEventKey
       ? { recentEvents: normalizeRecentEvents(recentEvents, dedupe.now) }
-      : { lastIncrementKey: dedupe.key, lastIncrementAt: dedupe.now }),
+      : {
+        lastIncrementKey: dedupe.key,
+        lastIncrementAt: dedupe.now,
+        recentIncrements: normalizeRecentIncrements(recentIncrements, dedupe.now),
+      }),
     ...countDiagnostics({
       countedAt,
       reason,
@@ -424,6 +510,7 @@ function clearedCountDiagnostics() {
     lastCountSessionId: null,
     lastIncrementKey: null,
     lastIncrementAt: 0,
+    recentIncrements: {},
     recentEvents: {},
   };
 }
@@ -441,7 +528,6 @@ async function resetTodayData() {
   data.sessions = {};
   data.total = sumCounts(data.byDate);
   Object.assign(data, clearedCountDiagnostics());
-  lastIncrement = { key: null, at: 0 };
   await setCounts(data);
   setBadgeCount(0);
   return { total: data.total, storageSchemaVersion: STORAGE_SCHEMA_VERSION };
@@ -455,7 +541,6 @@ async function resetAllData() {
     showPageCounter: current.showPageCounter !== false,
     ...clearedCountDiagnostics(),
   };
-  lastIncrement = { key: null, at: 0 };
   await setCounts(data);
   setBadgeCount(0);
   return { total: 0, storageSchemaVersion: STORAGE_SCHEMA_VERSION };
@@ -479,18 +564,75 @@ async function migrateStoredData() {
   return data;
 }
 
+async function hasOptionalGrokAccess() {
+  if (!chrome.permissions?.contains) return false;
+  return chrome.permissions.contains({ origins: [GROK_ORIGIN] });
+}
+
+async function syncOptionalGrokContentScripts() {
+  const enabled = await hasOptionalGrokAccess();
+  if (!chrome.scripting?.getRegisteredContentScripts) {
+    if (enabled) {
+      throw new Error('This Chrome version cannot configure optional Grok counting.');
+    }
+    return { enabled: false };
+  }
+
+  const registered = await chrome.scripting.getRegisteredContentScripts({
+    ids: [...GROK_CONTENT_SCRIPT_IDS],
+  });
+  const registeredIds = new Set((registered || []).map((entry) => entry.id));
+  const complete = GROK_CONTENT_SCRIPT_IDS.every((id) => registeredIds.has(id));
+
+  if (!enabled || !complete) {
+    const existingIds = GROK_CONTENT_SCRIPT_IDS.filter((id) => registeredIds.has(id));
+    if (existingIds.length) {
+      await chrome.scripting.unregisterContentScripts({ ids: existingIds });
+    }
+  }
+
+  if (enabled && !complete) {
+    await chrome.scripting.registerContentScripts(
+      GROK_CONTENT_SCRIPTS.map((script) => ({
+        ...script,
+        matches: [...script.matches],
+        js: [...script.js],
+      }))
+    );
+  }
+
+  return { enabled };
+}
+
+function enqueueOptionalGrokSync() {
+  grokSyncQueue = grokSyncQueue.then(
+    syncOptionalGrokContentScripts,
+    syncOptionalGrokContentScripts
+  );
+  return grokSyncQueue;
+}
+
+function reconcileOptionalGrokAccess() {
+  enqueueOptionalGrokSync().catch(() => {});
+}
+
 // Initialize badge on install/activate
 chrome.runtime.onInstalled.addListener(async () => {
   ensureDefaultSettings();
   scheduleBadgeRefresh();
+  reconcileOptionalGrokAccess();
   const data = await enqueueMutation(migrateStoredData);
   setBadgeCount(data.byDate[todayKey()]);
 });
 chrome.runtime.onStartup.addListener(async () => {
   scheduleBadgeRefresh();
+  reconcileOptionalGrokAccess();
   const data = await enqueueMutation(migrateStoredData);
   setBadgeCount(data.byDate[todayKey()]);
 });
+
+chrome.permissions?.onAdded?.addListener?.(reconcileOptionalGrokAccess);
+chrome.permissions?.onRemoved?.addListener?.(reconcileOptionalGrokAccess);
 
 chrome.alarms?.onAlarm?.addListener?.((alarm) => {
   if (alarm.name !== BADGE_REFRESH_ALARM) return;
@@ -505,14 +647,50 @@ chrome.storage.onChanged.addListener((changes, namespace) => {
 });
 
 function parseJsonFromRequestBody(details) {
-  const raw = details.requestBody?.raw?.[0]?.bytes;
-  if (!raw) return null;
+  const segments = (details.requestBody?.raw || [])
+    .map(part => part?.bytes)
+    .filter(Boolean)
+    .map(bytes => new Uint8Array(bytes));
+  if (!segments.length) return null;
   try {
-    const text = new TextDecoder().decode(new Uint8Array(raw));
+    const byteLength = segments.reduce((total, segment) => total + segment.byteLength, 0);
+    const combined = new Uint8Array(byteLength);
+    let offset = 0;
+    for (const segment of segments) {
+      combined.set(segment, offset);
+      offset += segment.byteLength;
+    }
+    const text = new TextDecoder().decode(combined);
     return JSON.parse(text);
   } catch (_) {
     return null;
   }
+}
+
+function isChatGptRequest(details = {}) {
+  if (String(details.method || '').toUpperCase() !== 'POST') return false;
+  try {
+    const url = new URL(details.url);
+    const host = url.hostname.toLowerCase();
+    return (
+      (host === 'chatgpt.com' || host === 'chat.openai.com') &&
+      isChatGptPromptEndpoint(url.href) &&
+      /^\/backend-api\/(?:[^/]+\/)?(?:conversation|responses)\/?$/.test(url.pathname)
+    );
+  } catch (_) {
+    return false;
+  }
+}
+
+function modelFromChatGptPayload(payload = {}) {
+  const candidates = [
+    payload.model,
+    payload.model_slug,
+    payload.model_id,
+    payload.metadata?.model,
+    payload.conversation_mode?.model,
+  ];
+  return candidates.find(value => typeof value === 'string' && value.trim()) || 'unknown';
 }
 
 function siteFromUrl(url) {
@@ -547,25 +725,29 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === "tick") {
     const context = supportedSenderContext(sender);
     if (!context) return;
-    const sessionId = safeOpaqueId(
-      message.sessionId,
-      `${context.provider}:tab-${context.tabId ?? 'unknown'}`
-    );
-    const usesStablePageEvents = context.provider === 'claude'
-      || context.provider === 'perplexity'
-      || context.provider === 'grok';
+    const fallbackSessionId = `${context.provider}:tab-${context.tabId ?? 'unknown'}`;
+    const sessionId = context.provider === 'chatgpt'
+      ? fallbackSessionId
+      : safeOpaqueId(message.sessionId, fallbackSessionId);
+    const usesStablePageEvents = context.provider !== 'chatgpt';
     const eventId = usesStablePageEvents ? safeOpaqueId(message.eventId, '') : null;
-    const dedupeKey = eventId || `tab-${context.tabId ?? sessionId}`;
+    const dedupeKey = eventId || (
+      context.provider === 'chatgpt' ? sessionId : `tab-${context.tabId ?? sessionId}`
+    );
+    const countPrompt = () => increment(
+      message.model || 'unknown',
+      context.host,
+      sessionId,
+      dedupeKey,
+      message.reason || 'content-tick',
+      eventId
+    );
+    const operation = context.provider === 'grok'
+      ? hasOptionalGrokAccess().then(enabled => enabled ? countPrompt() : false)
+      : countPrompt();
     return sendAsyncResponse(
       sendResponse,
-      increment(
-        message.model || 'unknown',
-        context.host,
-        sessionId,
-        dedupeKey,
-        message.reason || 'content-tick',
-        eventId
-      ).then(counted => ({ ok: true, counted }))
+      operation.then(counted => ({ ok: true, counted }))
     );
   }
 
@@ -573,6 +755,17 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return sendAsyncResponse(
       sendResponse,
       getCounts().then(data => ({ ok: true, status: buildStatus(data) }))
+    );
+  }
+
+  if (message.type === 'syncGrokAccess') {
+    if (!canManageStoredData(sender)) {
+      sendResponse({ ok: false, error: 'syncGrokAccess is only available from extension UI' });
+      return;
+    }
+    return sendAsyncResponse(
+      sendResponse,
+      enqueueOptionalGrokSync().then(result => ({ ok: true, ...result }))
     );
   }
 
@@ -638,17 +831,17 @@ const urlFilters = [
 
 chrome.webRequest.onBeforeRequest.addListener(
   (details) => {
-    if (!isChatGptPromptEndpoint(details.url)) return;
+    if (!isChatGptRequest(details)) return;
     const payload = parseJsonFromRequestBody(details);
     if (isUserSendPayload(payload)) {
-      const sessionId = `tab-${details.tabId}`;
+      const sessionId = `chatgpt:tab-${details.tabId}`;
       increment(
-        payload.model || 'unknown',
+        modelFromChatGptPayload(payload),
         siteFromUrl(details.url),
         sessionId,
         sessionId,
         'chatgpt-network'
-      );
+      ).catch(() => {});
     }
   },
   { urls: urlFilters },

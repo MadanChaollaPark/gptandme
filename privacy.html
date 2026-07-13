@@ -29,13 +29,13 @@
   <body>
     <h1>Privacy Policy</h1>
     <p><strong>GPTandME</strong></p>
-    <p>Last updated: 2026-07-10</p>
+    <p>Last updated: 2026-07-13</p>
 
     <h2>Local data handling</h2>
     <p>This extension handles usage data locally in your browser so it can count prompts and show usage statistics. It does <strong>not</strong> transmit, sell, or share user data. It does not send data to any server and does not use analytics, advertising, or tracking services.</p>
 
     <h2>Data storage</h2>
-    <p>All usage data is stored locally on your device using the Chrome Storage API. This includes prompt counts, daily/weekly/monthly totals, per-service counts for ChatGPT, Claude, Gemini, Perplexity, and Grok, model-count summaries when available, hourly/session statistics, non-sensitive diagnostics such as the last counted time/source and last supported host, and local preferences such as the in-page counter setting. To prevent transport retries from being counted twice, GPTandME also keeps up to 500 opaque event identifiers locally with a 24-hour deduplication window; expired identifiers are pruned during hourly maintenance, startup, or the next write, and reset controls clear them. No data leaves your browser unless you manually export a CSV file from the popup.</p>
+    <p>All usage data is stored locally on your device using the Chrome Storage API. This includes prompt counts, daily/weekly/monthly totals, per-service counts for ChatGPT, Claude, Gemini, Perplexity, and Grok, model-count summaries when available, hourly/session statistics, non-sensitive diagnostics such as the last counted time/source and last supported host, and local preferences such as the in-page counter setting. To prevent duplicate counting, GPTandME keeps two bounded local deduplication sets: up to 500 opaque provider event identifiers for 24 hours, and up to 500 short-lived supported-host/tab keys for two seconds. Expired entries are pruned during maintenance or the next write, and reset controls clear them. No data leaves your browser unless you manually download a JSON backup or CSV usage file from the popup.</p>
 
     <h2>Prompt content</h2>
     <p>On supported chat services, the extension may inspect outgoing request data locally to distinguish a new user send from an automatic retry and to read an opaque request identifier or model label when available. Only non-content metadata is emitted to the extension. The extension does not store prompt text or a page's full URL path, and it does not send prompt text anywhere.</p>
@@ -43,11 +43,11 @@
     <h2>Extension surfaces</h2>
     <p>Version 1.4.0 exposes local usage information through the extension badge, the extension popup, and an optional in-page widget/counter on supported chat hosts. The popup shows today's and all-time prompt counts for ChatGPT, Claude, Gemini, Perplexity, and Grok, and may show a local OpenAI API cost proxy based on prompt-count assumptions; it is not actual billing data. The widget renders inside a closed browser shadow root so the host page cannot read its count. The widget is optional; the badge and popup remain the primary supported surfaces.</p>
 
-    <h2>CSV backups</h2>
-    <p>Manual CSV exports use the columns date, provider, model, and count. Legacy GPTandME CSV files without a provider column remain importable and are assigned the provider value "unknown" because the extension cannot safely infer historical service attribution.</p>
+    <h2>Backups and CSV files</h2>
+    <p>A manual JSON backup contains the complete local GPTandME data needed for restoration, including counts, hours, sessions, settings, and diagnostics. Restoring a JSON backup replaces the data currently stored by the extension. CSV usage exports contain dated counts using the columns date, provider, model, and count; CSV imports merge by adding those counts. Importing the same CSV more than once therefore duplicates its counts. Legacy GPTandME CSV files without a provider column remain importable and are assigned the provider value "unknown" because the extension cannot safely infer historical service attribution.</p>
 
     <h2>Supported hosts</h2>
-    <p>The extension only runs on supported AI chat hosts: chatgpt.com, chat.openai.com, claude.ai, gemini.google.com, perplexity.ai, www.perplexity.ai, and grok.com. It does not run on OpenAI platform, API, billing, help, documentation, or unrelated web pages.</p>
+    <p>The extension only runs on supported HTTPS AI chat hosts: chatgpt.com, chat.openai.com, claude.ai, gemini.google.com, perplexity.ai, www.perplexity.ai, and, when the user enables optional access, grok.com. GPTandME is browser-only: it does not run in Claude Code, native desktop apps, command-line tools, direct provider API clients outside those browser chat sites, billing pages, help pages, documentation sites, or unrelated web pages.</p>
 
     <h2>Permissions</h2>
     <ul>
@@ -55,19 +55,24 @@
       <li><strong>webRequest</strong> — used locally for ChatGPT request detection so user-sent prompts can be counted more reliably.</li>
       <li><strong>activeTab</strong> — used only when you open the popup so it can label whether the current tab is a supported host.</li>
       <li><strong>alarms</strong> — used locally to refresh the badge count after date changes while the browser is running.</li>
-      <li><strong>host_permissions</strong> — limited to chatgpt.com, chat.openai.com, claude.ai, gemini.google.com, perplexity.ai, www.perplexity.ai, and grok.com so the content script can detect user sends on supported chat sites.</li>
+      <li><strong>scripting</strong> — used to register Grok counting scripts only after optional grok.com access is granted.</li>
+      <li><strong>host permissions</strong> — limited to the HTTPS ChatGPT hosts required by the <code>webRequest</code> backup detector. Static content-script matches separately limit page detection to the other supported HTTPS chat hosts.</li>
+      <li><strong>optional host permission</strong> — access to grok.com is requested from the popup only when the user turns on Grok counting, and can be removed there at any time. Reload already-open Grok tabs after enabling or removing access so their loaded page scripts match the new setting.</li>
     </ul>
 
+    <h2>Private browsing</h2>
+    <p>GPTandME cannot be enabled in Chrome Incognito mode. This prevents private-window activity from being combined with the regular-profile usage totals stored by the extension.</p>
+
     <h2>Third-party services</h2>
-    <p>This extension does not integrate with any third-party analytics, advertising, or tracking services. Version 1.4.0 adds only the narrow grok.com host permission required for Grok counting and does not add external usage telemetry.</p>
+    <p>This extension does not integrate with any third-party analytics, advertising, or tracking services. Version 1.4.0 adds optional, user-enabled Grok browser counting and does not add external usage telemetry.</p>
 
     <h2>Limited use</h2>
     <p>The use of information received from Google APIs will adhere to the Chrome Web Store User Data Policy, including the Limited Use requirements.</p>
 
     <h2>User control</h2>
-    <p>You can reset your counts at any time using the "Reset today" or "Reset all" buttons in the popup. You can also export or import a local CSV manually. Uninstalling the extension removes the locally stored extension data from the browser profile.</p>
+    <p>You can enable or remove optional grok.com access and reset your counts at any time from the popup. You can also download or restore a complete local JSON backup and export or import a dated-count CSV file manually. Uninstalling the extension removes the locally stored extension data from the browser profile.</p>
 
     <h2>Contact</h2>
-    <p>Questions or concerns? Visit <a href="https://madanchaollapark.github.io/gptandme/support.html">GPTandME support</a>.</p>
+    <p>Questions or concerns? Visit <a href="https://madanchaollapark.github.io/gptandme/support.html">GPTandME support</a>, email <a href="mailto:chaollapark@gmail.com">chaollapark@gmail.com</a>, or report a technical issue in the <a href="https://github.com/MadanChaollaPark/gptandme/issues">public issue tracker</a>. Do not include prompt text or conversation URLs in support requests.</p>
   </body>
 </html>

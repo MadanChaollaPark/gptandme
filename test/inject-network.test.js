@@ -31,7 +31,9 @@ function createEnvironment(hostname) {
     return Promise.resolve({ call: fetchCalls.length, transport: 'fetch' });
   }
 
-  function TestWebSocket() {}
+  function TestWebSocket(url = `wss://${hostname}/socket.io/`) {
+    this.url = url;
+  }
   TestWebSocket.prototype.send = function nativeSend(...args) {
     webSocketCalls.push({ args, thisValue: this });
     return `websocket-call-${webSocketCalls.length}`;
@@ -131,7 +133,7 @@ describe('page network intent interception', () => {
         prompt: 'sanitized-fixture-alpha',
       });
       const completion2Body = JSON.stringify({
-        model_name: 'claude-opus-4',
+        model_name: 'Claude Opus 4',
         prompt: 'sanitized-fixture-beta',
         turn_message_uuids: { human_message_uuid: 'turn-beta-002' },
       });
@@ -172,7 +174,7 @@ describe('page network intent interception', () => {
       }
     });
 
-    it('dedupes an immediate retry but gives a later identical send a new opaque ID', async () => {
+    it('gives separate rapid identical sends distinct opaque IDs when no stable request ID exists', async () => {
       const environment = createEnvironment('claude.ai');
       const body = JSON.stringify({
         model: 'claude-sonnet-4',
@@ -187,8 +189,8 @@ describe('page network intent interception', () => {
 
       const details = sendEvents(environment);
       assert.equal(details.length, 3);
-      assert.equal(details[0].eventId, details[1].eventId, 'an immediate retry must reuse the fallback ID');
-      assert.notEqual(details[1].eventId, details[2].eventId, 'a later identical send must count separately');
+      assert.notEqual(details[0].eventId, details[1].eventId);
+      assert.notEqual(details[1].eventId, details[2].eventId);
       assert.match(details[0].eventId, /^claude:local-opaque-\d+$/);
       assert.doesNotMatch(details[0].eventId, /sanitized|fallback|fixture/i);
       assert.doesNotMatch(JSON.stringify(details), /sanitized-fallback-fixture/);
@@ -413,6 +415,19 @@ describe('page network intent interception', () => {
         provider: 'perplexity',
       }]);
       assert.doesNotMatch(JSON.stringify(environment.events), /sanitized-websocket-fixture/);
+    });
+
+    it('does not inspect user-shaped frames on unrelated sockets', () => {
+      const environment = createEnvironment('perplexity.ai');
+      const socket = new environment.window.WebSocket('wss://perplexity.ai/notifications');
+
+      socket.send(socketFrame('perplexity_ask', 'sanitized-unrelated-query', {
+        frontend_uuid: 'unrelated-socket-001',
+        model: 'sonar',
+      }));
+
+      assert.equal(environment.webSocketCalls.length, 1);
+      assert.deepEqual(sendEvents(environment), []);
     });
   });
 

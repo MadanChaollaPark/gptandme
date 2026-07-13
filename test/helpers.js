@@ -170,6 +170,12 @@ class TestElement {
     this.listeners.get(type).push(callback);
   }
 
+  dispatch(type, event = { target: this }) {
+    return Promise.all(
+      (this.listeners.get(type) || []).map((callback) => callback(event))
+    );
+  }
+
   click() {
     if (this.tagName === 'A') {
       this.ownerDocument?.downloads.push({
@@ -356,7 +362,7 @@ function createContentScriptHarness(options = {}) {
   };
 }
 
-function createPopupScriptHarness(storageData = {}) {
+function createPopupScriptHarness(storageData = {}, options = {}) {
   const document = createTestDocument([
     'today',
     'week',
@@ -375,6 +381,8 @@ function createPopupScriptHarness(storageData = {}) {
     'statusValue',
     'currentSite',
     'pageCounterToggle',
+    'grokAccessToggle',
+    'grokAccessState',
     'version',
     'lastCounted',
     'lastReason',
@@ -384,11 +392,18 @@ function createPopupScriptHarness(storageData = {}) {
     'resetToday',
     'resetAll',
     'downloadCsv',
+    'downloadJson',
+    'restoreJson',
+    'restoreJsonInput',
   ]);
   const objectUrls = new Map();
   const revokedUrls = [];
   const sets = [];
   const runtimeMessages = [];
+  const confirmationMessages = [];
+  const permissionRequests = [];
+  const confirmationResponses = [...(options.confirmationResponses || [])];
+  let grokPermissionGranted = Boolean(options.grokPermissionGranted);
   let nextUrlId = 0;
   class TestURL extends URL {}
   TestURL.createObjectURL = function createObjectURL(blob) {
@@ -412,6 +427,11 @@ function createPopupScriptHarness(storageData = {}) {
     },
     URL: TestURL,
     document,
+    confirm(message) {
+      confirmationMessages.push(String(message));
+      if (confirmationResponses.length) return confirmationResponses.shift();
+      return options.confirmationResponse ?? true;
+    },
     chrome: {
       runtime: {
         getManifest() {
@@ -419,8 +439,25 @@ function createPopupScriptHarness(storageData = {}) {
         },
         sendMessage(message, callback) {
           runtimeMessages.push(message);
+          if (options.runtimeResponses && Object.hasOwn(options.runtimeResponses, message.type)) {
+            callback?.(options.runtimeResponses[message.type]);
+            return;
+          }
+          if (message.type === 'exportData') {
+            callback?.({
+              ok: true,
+              export: options.exportPayload || {
+                schemaVersion: 2,
+                storageSchemaVersion: 2,
+                exportedAt: '2026-01-02T03:04:05.000Z',
+                extensionVersion: 'test-version',
+                data: { ...storageData },
+              },
+            });
+            return;
+          }
           if (message.type === 'importData') {
-            Object.assign(storageData, message.payload.data);
+            Object.assign(storageData, message.payload.data || message.payload);
             callback?.({ ok: true, import: { total: storageData.total || 0 } });
             return;
           }
@@ -433,7 +470,29 @@ function createPopupScriptHarness(storageData = {}) {
             callback?.({ ok: true, reset: { total: 0 } });
             return;
           }
+          if (message.type === 'syncGrokAccess') {
+            callback?.({ ok: true, enabled: grokPermissionGranted });
+            return;
+          }
           callback?.({ ok: false, error: 'unknown message' });
+        },
+      },
+      permissions: {
+        contains(details, callback) {
+          permissionRequests.push({ method: 'contains', details: JSON.parse(JSON.stringify(details)) });
+          callback(grokPermissionGranted);
+        },
+        request(details, callback) {
+          permissionRequests.push({ method: 'request', details: JSON.parse(JSON.stringify(details)) });
+          const granted = options.grokPermissionRequestResult ?? true;
+          if (granted) grokPermissionGranted = true;
+          callback(granted);
+        },
+        remove(details, callback) {
+          permissionRequests.push({ method: 'remove', details: JSON.parse(JSON.stringify(details)) });
+          const removed = grokPermissionGranted;
+          grokPermissionGranted = false;
+          callback(removed);
         },
       },
       storage: {
@@ -469,12 +528,27 @@ function createPopupScriptHarness(storageData = {}) {
     objectUrls,
     revokedUrls,
     runtimeMessages,
+    confirmationMessages,
+    permissionRequests,
     sets,
     fireDOMContentLoaded() {
       document.dispatch('DOMContentLoaded');
     },
     click(id) {
       document.getElementById(id).click();
+    },
+    async change(id, checked) {
+      const element = document.getElementById(id);
+      element.checked = Boolean(checked);
+      await element.dispatch('change', { target: element });
+    },
+    async selectFile(id, text, name = 'data.txt') {
+      const target = {
+        files: [{ name, text: async () => text }],
+        value: name,
+      };
+      await document.getElementById(id).dispatch('change', { target });
+      return target;
     },
     lastDownloadText() {
       const download = document.downloads.at(-1);

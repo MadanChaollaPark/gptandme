@@ -4,15 +4,14 @@
   "version": "1.4.0",
   "description": "Count prompts sent on supported AI chat websites and keep usage stats locally in your browser.",
   "minimum_chrome_version": "111",
-  "permissions": ["storage", "webRequest", "activeTab", "alarms"],
+  "incognito": "not_allowed",
+  "permissions": ["storage", "webRequest", "activeTab", "alarms", "scripting"],
   "host_permissions": [
-    "*://chat.openai.com/*",
-    "*://chatgpt.com/*",
-    "*://claude.ai/*",
-    "*://gemini.google.com/*",
-    "*://grok.com/*",
-    "*://perplexity.ai/*",
-    "*://www.perplexity.ai/*"
+    "https://chat.openai.com/*",
+    "https://chatgpt.com/*"
+  ],
+  "optional_host_permissions": [
+    "https://grok.com/*"
   ],
   "background": {
     "service_worker": "background.js"
@@ -30,12 +29,11 @@
   "content_scripts": [
     {
       "matches": [
-        "*://chat.openai.com/*",
-        "*://chatgpt.com/*",
-        "*://claude.ai/*",
-        "*://grok.com/*",
-        "*://perplexity.ai/*",
-        "*://www.perplexity.ai/*"
+        "https://chat.openai.com/*",
+        "https://chatgpt.com/*",
+        "https://claude.ai/*",
+        "https://perplexity.ai/*",
+        "https://www.perplexity.ai/*"
       ],
       "js": ["inject.js"],
       "run_at": "document_start",
@@ -43,13 +41,12 @@
     },
     {
       "matches": [
-        "*://chat.openai.com/*",
-        "*://chatgpt.com/*",
-        "*://claude.ai/*",
-        "*://gemini.google.com/*",
-        "*://grok.com/*",
-        "*://perplexity.ai/*",
-        "*://www.perplexity.ai/*"
+        "https://chat.openai.com/*",
+        "https://chatgpt.com/*",
+        "https://claude.ai/*",
+        "https://gemini.google.com/*",
+        "https://perplexity.ai/*",
+        "https://www.perplexity.ai/*"
       ],
       "js": ["shared.js", "content.js"],
       "run_at": "document_end"

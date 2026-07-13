@@ -22,7 +22,10 @@ function chromeEvent() {
 function loadBackground({
   initialStorage = {},
   manifestVersion = '9.9.9',
+  grokAccessGranted = false,
   storageGetDelayMs = 0,
+  storageGetError = null,
+  storageSetError = null,
 } = {}) {
   const storage = clone(initialStorage);
   const badge = {};
@@ -32,6 +35,10 @@ function loadBackground({
   const onBeforeRequest = chromeEvent();
   const onStorageChanged = chromeEvent();
   const onAlarm = chromeEvent();
+  const onPermissionsAdded = chromeEvent();
+  const onPermissionsRemoved = chromeEvent();
+  const registeredContentScripts = new Map();
+  let hasGrokAccess = grokAccessGranted;
 
   const chrome = {
     action: {
@@ -49,6 +56,13 @@ function loadBackground({
       create() {},
       onAlarm,
     },
+    permissions: {
+      async contains({ origins }) {
+        return Boolean(hasGrokAccess && origins?.includes('https://grok.com/*'));
+      },
+      onAdded: onPermissionsAdded,
+      onRemoved: onPermissionsRemoved,
+    },
     runtime: {
       getManifest() {
         return { version: manifestVersion };
@@ -61,18 +75,44 @@ function loadBackground({
       local: {
         get(defaults, callback) {
           const result = { ...clone(defaults), ...clone(storage) };
-          if (storageGetDelayMs > 0) {
-            setTimeout(() => callback(result), storageGetDelayMs);
-          } else {
+          const invoke = () => {
+            if (storageGetError) chrome.runtime.lastError = { message: storageGetError };
             callback(result);
+            delete chrome.runtime.lastError;
+          };
+          if (storageGetDelayMs > 0) {
+            setTimeout(invoke, storageGetDelayMs);
+          } else {
+            invoke();
           }
         },
         set(data, callback) {
-          Object.assign(storage, clone(data));
+          if (!storageSetError) Object.assign(storage, clone(data));
+          if (storageSetError) chrome.runtime.lastError = { message: storageSetError };
           callback?.();
+          delete chrome.runtime.lastError;
         },
       },
       onChanged: onStorageChanged,
+    },
+    scripting: {
+      async getRegisteredContentScripts({ ids } = {}) {
+        const requested = ids ? new Set(ids) : null;
+        return [...registeredContentScripts.values()]
+          .filter((script) => !requested || requested.has(script.id))
+          .map(clone);
+      },
+      async registerContentScripts(scripts) {
+        for (const script of scripts) {
+          if (registeredContentScripts.has(script.id)) {
+            throw new Error(`Duplicate content script: ${script.id}`);
+          }
+          registeredContentScripts.set(script.id, clone(script));
+        }
+      },
+      async unregisterContentScripts({ ids }) {
+        for (const id of ids) registeredContentScripts.delete(id);
+      },
     },
     webRequest: {
       onBeforeRequest,
@@ -99,7 +139,16 @@ function loadBackground({
     { filename: 'background.js' }
   );
 
-  return { badge, chrome, sandbox, storage };
+  return {
+    badge,
+    chrome,
+    registeredContentScripts,
+    sandbox,
+    setGrokAccess(value) {
+      hasGrokAccess = Boolean(value);
+    },
+    storage,
+  };
 }
 
 function sendMessage(env, message, sender = {}) {
@@ -163,9 +212,43 @@ describe('background counting diagnostics', () => {
     assert.equal(env.storage.lastCountReason, 'first');
     assert.equal(env.storage.lastCountedAt, firstCountedAt);
   });
+
+  it('dedupes each recent key even when another key is recorded between duplicates', async () => {
+    const env = loadBackground();
+
+    assert.equal(await env.sandbox.increment('gpt-5', 'chatgpt.com', 's-1', 'A'), true);
+    assert.equal(await env.sandbox.increment('gpt-5', 'chatgpt.com', 's-1', 'B'), true);
+    assert.equal(await env.sandbox.increment('gpt-5', 'chatgpt.com', 's-1', 'A'), false);
+
+    const day = shared.todayKey();
+    assert.equal(env.storage.byDate[day], 2);
+    assert.equal(Object.keys(env.storage.recentIncrements).length, 2);
+  });
 });
 
 describe('background storage support hooks', () => {
+  it('reports storage read and write failures instead of acknowledging persistence', async () => {
+    const readFailure = loadBackground({ storageGetError: 'read denied' });
+    const readResponse = await sendMessage(readFailure, { type: 'getStatus' });
+    assert.equal(readResponse.ok, false);
+    assert.match(readResponse.error, /Could not read GPT&Me data: read denied/);
+
+    const writeFailure = loadBackground({ storageSetError: 'quota exceeded' });
+    const writeResponse = await sendMessage(
+      writeFailure,
+      {
+        type: 'tick',
+        eventId: 'gemini:dom-1',
+        model: 'unknown',
+        sessionId: 'gemini:page-1',
+      },
+      { tab: { id: 22, url: 'https://gemini.google.com/app' } }
+    );
+    assert.equal(writeResponse.ok, false);
+    assert.match(writeResponse.error, /Could not save GPT&Me data: quota exceeded/);
+    assert.equal(writeFailure.storage.byDate, undefined);
+  });
+
   it('returns normalized status data', async () => {
     const env = loadBackground({
       initialStorage: {
@@ -273,6 +356,69 @@ describe('background storage support hooks', () => {
 });
 
 describe('background provider message validation and event dedupe', () => {
+  it('repairs a stale ChatGPT DOM fallback with authoritative network model metadata', async () => {
+    const env = loadBackground();
+    const sender = { tab: { id: 31, url: 'https://chatgpt.com/' } };
+
+    const fallback = clone(await sendMessage(env, {
+      type: 'tick',
+      eventId: 'chatgpt:dom-1',
+      model: 'gpt-4o',
+      sessionId: 'chatgpt:page-private',
+      reason: 'chatgpt-dom-fallback',
+    }, sender));
+    assert.deepEqual(fallback, { ok: true, counted: true });
+
+    const payload = JSON.stringify({
+      action: 'next',
+      model: 'gpt-5.5',
+      messages: [{ role: 'user', content: 'sanitized fixture' }],
+    });
+    const encoded = new TextEncoder().encode(payload);
+    const splitAt = Math.floor(encoded.length / 2);
+    env.chrome.webRequest.onBeforeRequest.listeners[0]({
+      method: 'POST',
+      requestBody: {
+        raw: [
+          { bytes: encoded.slice(0, splitAt).buffer },
+          { bytes: encoded.slice(splitAt).buffer },
+        ],
+      },
+      tabId: 31,
+      url: 'https://chatgpt.com/backend-api/conversation',
+    });
+    await flushIncrements(env);
+
+    const day = shared.todayKey();
+    assert.equal(env.storage.byDate[day], 1);
+    assert.equal(env.storage.byModel[day]['gpt-5.5'], 1);
+    assert.equal(env.storage.byModel[day]['gpt-4o'], undefined);
+    assert.equal(env.storage.byProviderModel[day].chatgpt['gpt-5.5'], 1);
+    assert.equal(env.storage.sessions['chatgpt:tab-31'].lastModel, 'gpt-5.5');
+    assert.equal(env.storage.lastCountReason, 'chatgpt-network-upgrade');
+  });
+
+  it('ignores non-POST and lookalike-host ChatGPT web requests', async () => {
+    const env = loadBackground();
+    const bytes = new TextEncoder().encode(JSON.stringify({
+      action: 'next',
+      messages: [{ role: 'user', content: 'sanitized fixture' }],
+    })).buffer;
+    const listener = env.chrome.webRequest.onBeforeRequest.listeners[0];
+
+    listener({
+      method: 'GET', requestBody: { raw: [{ bytes }] }, tabId: 1,
+      url: 'https://chatgpt.com/backend-api/conversation',
+    });
+    listener({
+      method: 'POST', requestBody: { raw: [{ bytes }] }, tabId: 1,
+      url: 'https://chatgpt.com.evil.example/backend-api/conversation',
+    });
+    await flushIncrements(env);
+
+    assert.equal(env.storage.byDate, undefined);
+  });
+
   it('derives Claude attribution from the sender tab and ignores forged message fields', async () => {
     const env = loadBackground();
     await sendMessage(
@@ -516,5 +662,62 @@ describe('serialized background reset mutations', () => {
     await flushIncrements(env);
 
     assert.deepEqual(env.storage.recentEvents, { 'claude:fresh': now - 1000 });
+  });
+});
+
+describe('optional Grok content-script access', () => {
+  it('rejects ticks from an already-loaded Grok tab after access is removed', async () => {
+    const env = loadBackground({ grokAccessGranted: false });
+    const response = clone(await sendMessage(
+      env,
+      {
+        type: 'tick',
+        eventId: 'grok:stale-tab-event',
+        model: 'grok-4',
+        sessionId: 'grok:stale-tab',
+      },
+      { tab: { id: 8, url: 'https://grok.com/' } }
+    ));
+
+    assert.deepEqual(response, { ok: true, counted: false });
+    assert.deepEqual(env.storage.byDate, undefined);
+    assert.equal(env.storage.total, undefined);
+  });
+
+  it('registers Grok scripts only after the optional host grant and removes them again', async () => {
+    const env = loadBackground({ grokAccessGranted: true });
+
+    const enabled = await env.sandbox.syncOptionalGrokContentScripts();
+    assert.equal(enabled.enabled, true);
+    assert.deepEqual(
+      [...env.registeredContentScripts.keys()].sort(),
+      ['gptandme-grok-isolated', 'gptandme-grok-main']
+    );
+    const main = env.registeredContentScripts.get('gptandme-grok-main');
+    assert.deepEqual(main.matches, ['https://grok.com/*']);
+    assert.deepEqual(main.js, ['inject.js']);
+    assert.equal(main.world, 'MAIN');
+    assert.equal(main.runAt, 'document_start');
+
+    env.setGrokAccess(false);
+    const disabled = await env.sandbox.syncOptionalGrokContentScripts();
+    assert.equal(disabled.enabled, false);
+    assert.equal(env.registeredContentScripts.size, 0);
+  });
+
+  it('allows only extension UI to request a Grok registration sync', async () => {
+    const env = loadBackground({ grokAccessGranted: true });
+    const rejected = await sendMessage(
+      env,
+      { type: 'syncGrokAccess' },
+      { tab: { id: 2, url: 'https://grok.com/' } }
+    );
+    assert.equal(rejected.ok, false);
+    assert.match(rejected.error, /extension UI/);
+
+    const accepted = await sendMessage(env, { type: 'syncGrokAccess' });
+    assert.equal(accepted.ok, true);
+    assert.equal(accepted.enabled, true);
+    assert.equal(env.registeredContentScripts.size, 2);
   });
 });

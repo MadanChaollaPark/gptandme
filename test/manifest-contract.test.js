@@ -28,6 +28,12 @@ const HOSTS = Object.freeze({
   'www.perplexity.ai': { provider: 'perplexity', mainWorld: true },
 });
 
+const WEB_REQUEST_HOSTS = [
+  'chat.openai.com',
+  'chatgpt.com',
+];
+const OPTIONAL_HOSTS = ['grok.com'];
+
 const PACKAGE_FILES = [
   'manifest.json',
   'shared.js',
@@ -48,7 +54,7 @@ function sorted(values) {
 }
 
 function matchPattern(host) {
-  return `*://${host}/*`;
+  return `https://${host}/*`;
 }
 
 function contentScript(predicate, description) {
@@ -74,15 +80,24 @@ function parsePopupProviderOrder(source) {
 }
 
 describe('extension provider manifest contract', () => {
-  it('keeps canonical providers, host permissions, and site aliases aligned', () => {
+  it('keeps canonical providers, minimum host permissions, and site aliases aligned', () => {
     assert.deepEqual(sorted(Object.keys(shared.PROVIDERS)), sorted(PROVIDER_ORDER));
 
-    const expectedHosts = Object.keys(HOSTS);
     assert.deepEqual(
       sorted(manifest.host_permissions),
-      sorted(expectedHosts.map(matchPattern))
+      sorted(WEB_REQUEST_HOSTS.map(matchPattern))
+    );
+    assert.equal(manifest.incognito, 'not_allowed');
+    assert.deepEqual(
+      sorted(manifest.permissions),
+      sorted(['storage', 'webRequest', 'activeTab', 'alarms', 'scripting'])
+    );
+    assert.deepEqual(
+      sorted(manifest.optional_host_permissions),
+      sorted(OPTIONAL_HOSTS.map(matchPattern))
     );
 
+    const expectedHosts = Object.keys(HOSTS);
     const configuredHosts = Object.values(shared.SITES)
       .flatMap((site) => site.hosts || []);
     assert.deepEqual(sorted(configuredHosts), sorted(expectedHosts));
@@ -101,7 +116,7 @@ describe('extension provider manifest contract', () => {
   });
 
   it('injects isolated scripts on every host and MAIN interception where required', () => {
-    const expectedHosts = Object.keys(HOSTS);
+    const expectedHosts = Object.keys(HOSTS).filter((host) => !OPTIONAL_HOSTS.includes(host));
     const expectedMainHosts = expectedHosts.filter((host) => HOSTS[host].mainWorld);
     assert.equal(manifest.content_scripts.length, 2);
 
@@ -112,6 +127,7 @@ describe('extension provider manifest contract', () => {
     assert.deepEqual(main.js, ['inject.js']);
     assert.equal(main.run_at, 'document_start');
     assert.deepEqual(sorted(main.matches), sorted(expectedMainHosts.map(matchPattern)));
+    assert.ok(main.matches.every((pattern) => pattern.startsWith('https://')));
 
     const isolated = contentScript(
       (entry) => entry.world !== 'MAIN' && entry.js?.includes('content.js'),
@@ -120,12 +136,25 @@ describe('extension provider manifest contract', () => {
     assert.deepEqual(isolated.js, ['shared.js', 'content.js']);
     assert.equal(isolated.run_at, 'document_end');
     assert.deepEqual(sorted(isolated.matches), sorted(expectedHosts.map(matchPattern)));
+    assert.ok(isolated.matches.every((pattern) => pattern.startsWith('https://')));
 
     for (const [host, expected] of Object.entries(HOSTS)) {
       const site = shared.siteConfigForHost(host).config;
       const networkInstrumented = Boolean(site.countViaNetwork || site.countViaPageNetwork);
       assert.equal(networkInstrumented, expected.mainWorld, host);
     }
+
+    const backgroundSource = fs.readFileSync(path.join(ROOT, 'background.js'), 'utf8');
+    assert.match(backgroundSource, /gptandme-grok-main/);
+    assert.match(backgroundSource, /gptandme-grok-isolated/);
+    assert.match(backgroundSource, /registerContentScripts/);
+    assert.match(backgroundSource, /world: 'MAIN'/);
+    assert.match(backgroundSource, /js: \['shared\.js', 'content\.js'\]/);
+    assert.equal(
+      manifest.content_scripts.some((entry) => entry.matches?.includes(matchPattern('grok.com'))),
+      false,
+      'Grok must remain optional instead of becoming a required update permission'
+    );
   });
 
   it('keeps the popup provider order complete and deterministic', () => {
@@ -163,5 +192,19 @@ describe('extension provider manifest contract', () => {
     assert.match(verifySource, /PACKAGE_VERSION=/);
     assert.match(verifySource, /MANIFEST_VERSION=/);
     assert.match(verifySource, /PACKAGE_VERSION[^\n]*!=[^\n]*MANIFEST_VERSION/);
+
+    const rootPrivacy = fs.readFileSync(path.join(ROOT, 'privacy.html'), 'utf8');
+    const publicPrivacy = fs.readFileSync(path.join(ROOT, 'docs', 'privacy.html'), 'utf8');
+    assert.equal(rootPrivacy, publicPrivacy, 'packaged and public privacy policies must not drift');
+
+    const releaseContract = fs.readFileSync(
+      path.join(ROOT, 'scripts', 'verify-release-contract.mjs'),
+      'utf8'
+    );
+    assert.match(verifySource, /verify-release-contract\.mjs/);
+    assert.match(releaseContract, /host_permissions/);
+    assert.match(releaseContract, /byte-for-byte identical/);
+    assert.match(releaseContract, /Claude Code/);
+    assert.match(releaseContract, /Incognito/);
   });
 });

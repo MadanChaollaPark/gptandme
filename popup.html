@@ -1,5 +1,5 @@
 <!doctype html>
-<html>
+<html lang="en">
   <head>
     <meta charset="utf-8" />
     <title>Query Counter</title>
@@ -54,8 +54,8 @@
         background: var(--bg);
         color: var(--text);
         font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial;
-        margin: 14px;
-        width: 286px;
+        margin: 12px;
+        width: 320px;
       }
       h1 { font-size: 14px; margin: 0; }
       a { color: inherit; }
@@ -84,14 +84,31 @@
         border-color: var(--pill-neutral-border);
         color: var(--pill-neutral-text);
       }
-      .row { align-items: center; display: flex; justify-content: space-between; gap: 12px; margin: 7px 0; }
+      .row { align-items: center; display: flex; justify-content: space-between; gap: 12px; margin: 5px 0; }
       .row > div:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
       .value { flex-shrink: 0; font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
-      .section-title { color: var(--section); font-size: 12px; font-weight: 700; margin: 12px 0 5px; }
+      .section-title { color: var(--section); font-size: 12px; font-weight: 700; margin: 10px 0 5px; }
       .muted { color: var(--muted); font-size: 12px; line-height: 1.35; margin-top: 8px; }
       .cost-note { margin: -2px 0 7px; }
+      .summary-grid {
+        display: grid;
+        gap: 1px 14px;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+      .summary-grid .row { gap: 6px; }
+      .summary-grid .row > div:first-child { color: var(--section); font-size: 11px; }
+      .summary-grid .primary .value { font-size: 14px; font-weight: 700; }
+      .full-width { grid-column: 1 / -1; }
       .setting { align-items: center; display: flex; gap: 8px; margin: 8px 0; }
       .setting input { margin: 0; }
+      .optional-access {
+        background: var(--surface);
+        border-radius: 7px;
+        margin-top: 8px;
+        padding: 6px 8px;
+      }
+      .optional-access .setting { margin: 0; }
+      .optional-access .muted { margin: 3px 0 0 22px; }
       button {
         background: var(--surface);
         border: 1px solid var(--border);
@@ -103,6 +120,7 @@
         padding: 6px 8px;
       }
       button:hover { background: var(--surface-hover); }
+      button:disabled { cursor: wait; opacity: 0.6; }
       .button-row { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 10px; }
       .danger { color: var(--danger); }
       .sparkline {
@@ -145,30 +163,55 @@
       }
       .status-grid .row { margin: 4px 0; }
       .status-grid .label { color: var(--section); }
-      #importCsvInput { display: none; }
+      details {
+        border-top: 1px solid var(--border);
+        margin-top: 10px;
+        padding-top: 8px;
+      }
+      summary {
+        color: var(--section);
+        cursor: pointer;
+        font-size: 12px;
+        font-weight: 700;
+      }
+      .data-group { margin-top: 9px; }
+      .data-group + .data-group { border-top: 1px solid var(--border); padding-top: 9px; }
+      .data-group-title { font-size: 12px; font-weight: 700; }
+      .data-group .muted { margin: 3px 0 6px; }
+      .boundary-note {
+        background: var(--surface);
+        border-radius: 7px;
+        margin: 8px 0 0;
+        padding: 6px 8px;
+      }
+      #importStatus[data-state="success"] { color: var(--pill-ok-text); }
+      #importStatus[data-state="error"] { color: var(--danger); }
+      #importCsvInput, #restoreJsonInput { display: none; }
     </style>
   </head>
   <body>
     <div class="header">
       <h1><a href="https://madanchaollapark.github.io/gptandme/" target="_blank" rel="noopener noreferrer">GPTandME</a></h1>
-      <div id="statusValue" class="pill">Checking</div>
+      <div id="statusValue" class="pill" role="status" aria-live="polite">Checking site</div>
     </div>
 
-    <div class="row"><div>Today</div><div id="today" class="value">0</div></div>
-    <div class="row"><div>This week</div><div id="week" class="value">0</div></div>
-    <div class="row"><div>This month</div><div id="month" class="value">0</div></div>
-    <div class="row"><div>Last 24h</div><div id="last24" class="value">0</div></div>
-    <div class="row"><div>Streak</div><div id="streak" class="value">0 days</div></div>
-    <div class="row"><div>Total</div><div id="total" class="value">0</div></div>
-    <div class="row"><div>API proxy</div><div id="cost" class="value">Unpriced</div></div>
-    <div id="costNote" class="muted cost-note">API proxy; real billing needs token usage.</div>
-    <div class="row"><div>Sessions</div><div id="sessions" class="value">0</div></div>
+    <div class="summary-grid">
+      <div class="row primary"><div>Today</div><div id="today" class="value">0</div></div>
+      <div class="row primary"><div>All time</div><div id="total" class="value">0</div></div>
+      <div class="row"><div>This week</div><div id="week" class="value">0</div></div>
+      <div class="row"><div>This month</div><div id="month" class="value">0</div></div>
+      <div class="row"><div>Last 24 hours</div><div id="last24" class="value">0</div></div>
+      <div class="row"><div>Current streak</div><div id="streak" class="value">0 days</div></div>
+      <div class="row full-width"><div>Tracked sessions</div><div id="sessions" class="value">0 sessions</div></div>
+      <div class="row full-width"><div>API-equivalent cost today</div><div id="cost" class="value">Unpriced</div></div>
+    </div>
+    <div id="costNote" class="muted cost-note">Estimate only; real billing requires token usage.</div>
 
-    <div class="section-title">Last 7 Days</div>
-    <div id="sparkline" class="sparkline" aria-label="Last 7 days chart"></div>
+    <div class="section-title">Last 7 days</div>
+    <div id="sparkline" class="sparkline" role="img" aria-label="Last 7 days: no data"></div>
 
     <div id="providerSection">
-      <div class="section-title">Queries by Service</div>
+      <div class="section-title">Prompts by browser service</div>
       <div class="service-row service-header" aria-hidden="true">
         <div>Service</div><div>Today</div><div>Total</div>
       </div>
@@ -180,27 +223,62 @@
       <div id="modelBreakdown"></div>
     </div>
 
-    <div class="section-title">Diagnostics</div>
-    <div class="status-grid">
-      <div class="row"><div class="label">Current site</div><div id="currentSite" class="value">Unknown</div></div>
-      <div class="row"><div class="label">Last counted</div><div id="lastCounted" class="value">Never</div></div>
-      <div class="row"><div class="label">Source</div><div id="lastReason" class="value">None</div></div>
-      <div class="row"><div class="label">Version</div><div id="version" class="value">Unknown</div></div>
-    </div>
-
     <label class="setting">
       <input id="pageCounterToggle" type="checkbox" />
       <span>Show in-page counter</span>
     </label>
-
-    <div class="button-row">
-      <button id="downloadCsv">Download CSV</button>
-      <button id="importCsv">Import CSV</button>
-      <button id="resetToday" class="danger">Reset today</button>
-      <button id="resetAll" class="danger">Reset all</button>
+    <div class="optional-access">
+      <label class="setting">
+        <input id="grokAccessToggle" type="checkbox" disabled />
+        <span>Enable optional Grok counting</span>
+      </label>
+      <p id="grokAccessState" class="muted" role="status" aria-live="polite">Checking grok.com access…</p>
     </div>
-    <input id="importCsvInput" type="file" accept=".csv,text/csv" />
-    <div id="importStatus" class="muted">Counts are stored locally. Only user sends are counted.</div>
+    <p class="muted boundary-note">Counts prompts on supported browser sites only. Claude Code, Codex CLI/desktop, and IDE prompts are outside Chrome and cannot be counted.</p>
+
+    <details>
+      <summary>Diagnostics</summary>
+      <div class="status-grid">
+        <div class="row"><div class="label">Browser site</div><div id="currentSite" class="value">Unknown</div></div>
+        <div class="row"><div class="label">Last prompt counted</div><div id="lastCounted" class="value">Never</div></div>
+        <div class="row"><div class="label">Detection source</div><div id="lastReason" class="value">None</div></div>
+        <div class="row"><div class="label">Extension version</div><div id="version" class="value">Unknown</div></div>
+      </div>
+    </details>
+
+    <details>
+      <summary>Back up, merge, or reset data</summary>
+      <div class="data-group">
+        <div class="data-group-title">Complete backup</div>
+        <p class="muted">JSON preserves counts, hours, sessions, settings, and diagnostics. Restoring replaces the data currently stored.</p>
+        <div class="button-row">
+          <button id="downloadJson">Download JSON backup</button>
+          <button id="restoreJson">Restore JSON backup</button>
+        </div>
+        <input id="restoreJsonInput" type="file" accept=".json,application/json" />
+      </div>
+
+      <div class="data-group">
+        <div class="data-group-title">Usage CSV</div>
+        <p class="muted">CSV contains dated counts only. Import merges by adding counts; importing the same file twice duplicates them.</p>
+        <div class="button-row">
+          <button id="downloadCsv">Download usage CSV</button>
+          <button id="importCsv">Merge usage CSV</button>
+        </div>
+        <input id="importCsvInput" type="file" accept=".csv,text/csv" />
+      </div>
+
+      <div class="data-group">
+        <div class="data-group-title">Destructive actions</div>
+        <p class="muted">Reset today also clears session and recent diagnostic history. Reset all removes all locally stored usage data.</p>
+        <div class="button-row">
+          <button id="resetToday" class="danger">Reset today’s data</button>
+          <button id="resetAll" class="danger">Reset all data</button>
+        </div>
+      </div>
+    </details>
+
+    <div id="importStatus" class="muted" role="status" aria-live="polite">Counts are stored locally. Only user sends on supported browser sites are counted.</div>
 
     <script src="shared.js"></script>
     <script src="popup.js"></script>

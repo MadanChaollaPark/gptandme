@@ -41,7 +41,7 @@ function randomId() {
 const pageSessionId = `${provider}:page-${randomId()}`;
 
 window.addEventListener('__gptandme_model', (e) => {
-  lastDetectedModel = e.detail; // e.g. "gpt-4o", "o3"
+  lastDetectedModel = normalizeDetectedModel(e.detail); // e.g. "gpt-4o", "o3"
 });
 
 window.addEventListener('__gptandme_send', (event) => {
@@ -53,7 +53,7 @@ window.addEventListener('__gptandme_send', (event) => {
   }
   tick({
     eventId: String(detail.eventId).slice(0, 160),
-    model: detail.model || detectModel(),
+    model: normalizeDetectedModel(detail.model) || detectModel(),
     reason: `${provider}-network`,
     throttle: false,
   });
@@ -72,8 +72,36 @@ function modelFromURL() {
   catch (_) { return null; }
 }
 
+function normalizeDetectedModel(value) {
+  const text = String(value ?? '')
+    .replace(/^model\s*:\s*/i, '')
+    .trim()
+    .toLowerCase();
+  if (!text) return null;
+  const normalized = text
+    .replace(/[–—]/g, '-')
+    .replace(/[^a-z0-9._:/+\-]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 80);
+  return normalized || null;
+}
+
+function modelFromProviderDom() {
+  if (provider !== 'claude') return null;
+  const selector = 'button[data-testid="model-selector-dropdown"]';
+  const button = document.querySelectorAll(selector)[0];
+  if (!button) return null;
+  return normalizeDetectedModel(button.getAttribute('aria-label') || button.textContent);
+}
+
 function detectModel() {
-  return lastDetectedModel || modelFromSlugAttr() || modelFromURL() || 'unknown';
+  return (
+    lastDetectedModel ||
+    normalizeDetectedModel(modelFromSlugAttr()) ||
+    modelFromProviderDom() ||
+    normalizeDetectedModel(modelFromURL()) ||
+    'unknown'
+  );
 }
 
 // ---------- COUNTING ----------
@@ -107,7 +135,7 @@ function tick({
 }
 
 function recordDomSend() {
-  if (!siteConfig.countViaPageNetwork) {
+  if (!siteConfig.countViaPageNetwork && !siteConfig.countViaNetwork) {
     tick();
     return;
   }
@@ -494,10 +522,11 @@ function keepPageCounterAttached() {
 }
 
 function startPageCounterObserver() {
-  if (pageCounterObserver || !window.MutationObserver || !document.documentElement) return;
+  const mountTarget = pageCounterMountTarget();
+  if (pageCounterObserver || !window.MutationObserver || !mountTarget) return;
 
   pageCounterObserver = new MutationObserver(keepPageCounterAttached);
-  pageCounterObserver.observe(document.documentElement, { childList: true, subtree: true });
+  pageCounterObserver.observe(mountTarget, { childList: true });
 }
 
 function startPageCounterInterval() {

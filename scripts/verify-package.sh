@@ -26,6 +26,7 @@ FILES=(
   icons/icon128.png
 )
 
+node "$ROOT/scripts/verify-release-contract.mjs"
 "$ROOT/build.sh" >/dev/null
 
 printf '%s\n' "${FILES[@]}" | LC_ALL=C sort > "$EXPECTED"

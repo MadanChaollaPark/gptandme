@@ -153,7 +153,9 @@ function createMutationObserver(document) {
       document.observers.push(this);
     }
 
-    observe() {
+    observe(target, options) {
+      this.target = target;
+      this.options = options;
       this.active = true;
     }
 
@@ -283,6 +285,16 @@ describe('content page counter widget', () => {
 
     assert.equal(widgetHosts(document).length, 1);
     assert.equal(widgetValue(document), '3');
+  });
+
+  it('observes only direct body children instead of the streaming page subtree', () => {
+    const { document } = runContent();
+    const [observer] = document.observers;
+
+    assert.strictEqual(observer.target, document.body);
+    assert.equal(observer.options.childList, true);
+    assert.equal(Object.keys(observer.options).length, 1);
+    assert.equal(observer.options.subtree, undefined);
   });
 
   it('does not insert on unsupported hosts', () => {
