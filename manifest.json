@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "GPTandME",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "description": "Count prompts sent on supported AI chat websites and keep usage stats locally in your browser.",
   "minimum_chrome_version": "111",
   "incognito": "not_allowed",

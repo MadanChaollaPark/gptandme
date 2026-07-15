@@ -10,6 +10,8 @@ Use this checklist for every Chrome Web Store release. The release artifact must
 - Confirm the supported browser hosts, permissions, stored fields, retention bounds, and provider list still match the runtime.
 - Keep Grok in `optional_host_permissions`, not static content-script matches, so an update does not disable existing installations for a new required host warning.
 - State the product boundary clearly: GPTandME counts supported browser chat sites only. Claude Code, native desktop apps, command-line tools, direct provider API clients, and Chrome Incognito are not supported.
+- For v1.5.0 thinking time, state the contract exactly: local-only aggregate provider-reported ChatGPT timing for new responses observed after the user sends; no raw prompt/response content, no raw thinking labels, no raw timing samples, and no historical backfill.
+- Confirm JSON backups include thinking aggregates, while CSV export/import remains prompt counts only with `date,provider,model,count`.
 
 ## 2. Verify locally
 
@@ -17,12 +19,24 @@ Run:
 
 ```bash
 npm test
+node scripts/verify-release-contract.mjs
 npm run verify:package
 ```
 
-Confirm that the test suite passes, the package inventory is exact, and the reported ZIP SHA-256 is recorded in the release notes.
+Confirm that the test suite passes, the release contract verifier passes, the package inventory is exact, and the reported ZIP SHA-256 is recorded in the release notes.
 
-Use Chrome's extension update testing flow to confirm the production 1.2.4 package updates to this version without being disabled for a new required permission. Enable Grok from the popup and verify that its dynamic scripts register only after the optional grok.com grant.
+Use Chrome's extension update testing flow to confirm the production 1.2.4 package updates to this version without being disabled for a new required permission. Enable Grok from the popup and verify that its dynamic scripts register only after the optional grok.com grant. Confirm v1.5.0 keeps the same required permissions as v1.4.0.
+
+For the v1.5.0 thinking-time feature, confirm:
+
+- Storage schema v3 contains `byThinkingProviderModel[YYYY-MM-DD][provider][model] = { reportedCount, totalMs }`.
+- `recentThinkingEvents` is bounded and retained like the existing provider event ledger.
+- The content-to-background runtime message type is `thinkingMetric` with `{ eventId, model, thinkingMs, source: "provider-reported" }`.
+- The background derives and validates the provider from the sender tab and never trusts a forged provider in the message.
+- ChatGPT is the only thinking-time provider in v1.5.0.
+- Timing is read from provider-reported finalized DOM labels only; there is no stream cloning, response text capture, raw label/sample storage, or historical backfill.
+- Valid durations are 1 second through 6 hours inclusive.
+- The average is `totalMs / reportedCount`; untimed prompts are not included as zero-duration samples.
 
 ## 3. Publish policy and support pages
 
@@ -57,5 +71,5 @@ gh attestation verify gptandme.zip --repo MadanChaollaPark/gptandme
 
 - Confirm the Store shows the expected version and updated date.
 - Install the Store build in a clean Chrome profile.
-- Verify one prompt on each supported browser service, including the Grok opt-in and required tab reload, plus badge and popup totals, provider attribution, JSON backup/restore, CSV export/import merge warnings, both reset controls, and the optional in-page counter.
+- Verify one prompt on each supported browser service, including the Grok opt-in and required tab reload, plus badge and popup totals, provider attribution, ChatGPT provider-reported average and total thinking-time behavior, JSON backup/restore, CSV export/import merge warnings, both reset controls, and the optional in-page counter.
 - Confirm Claude Code and Incognito are not advertised as supported.

@@ -20,7 +20,10 @@ describe('popup markup safety and accessibility', () => {
     assert.match(popup, /supported browser sites only/);
     assert.match(popup, /Claude Code, Codex CLI\/desktop, and IDE prompts are outside Chrome/);
     assert.match(popup, /Import merges by adding counts; importing the same file twice duplicates them/);
-    assert.match(popup, /Reset today also clears session and recent diagnostic history/);
+    assert.match(
+      popup,
+      /Reset today deletes today’s prompt and thinking-time aggregates and clears session and recent diagnostic history/
+    );
     assert.match(popup, /Enable optional Grok counting/);
   });
 });
@@ -109,7 +112,10 @@ describe('full JSON backup and restore', () => {
 
     await harness.selectFile('restoreJsonInput', JSON.stringify(payload), 'backup.json');
 
-    assert.match(harness.confirmationMessages[0], /replaces current counts, hours, sessions, settings, and diagnostics/);
+    assert.match(
+      harness.confirmationMessages[0],
+      /replaces current prompt counts, thinking-time aggregates, hours, sessions, settings, and diagnostics/
+    );
     const importMessage = harness.runtimeMessages.find((message) => message.type === 'importData');
     assert.equal(JSON.stringify(importMessage.payload), JSON.stringify(payload));
     assert.equal(

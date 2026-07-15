@@ -19,6 +19,8 @@ const {
   getStreak,
   getWeekTotal,
   isSupportedHost,
+  normalizeProviderId,
+  parseDateKey,
   parseUsageCsv,
   siteConfigForHost,
   sumCounts,
@@ -29,6 +31,7 @@ const STORAGE_DEFAULTS = {
   byDate: {},
   byModel: {},
   byProviderModel: {},
+  byThinkingProviderModel: {},
   byHour: {},
   sessions: {},
   total: 0,
@@ -45,9 +48,15 @@ const STORAGE_DEFAULTS = {
   lastIncrementKey: null,
   lastIncrementAt: 0,
   recentEvents: {},
+  recentThinkingEvents: {},
 };
-const SUPPORTED_BACKUP_SCHEMA_VERSION = 2;
+const SUPPORTED_BACKUP_SCHEMA_VERSION = 3;
 const GROK_ORIGIN = 'https://grok.com/*';
+const THINKING_PROVIDER = 'chatgpt';
+const THINKING_MIN_MS = 1000;
+const THINKING_MAX_MS = 6 * 60 * 60 * 1000;
+const THINKING_NOTE =
+  'Provider-reported ChatGPT values from finalized thinking labels. Only timed responses enter averages; untimed prompts are not treated as 0.';
 
 function formatCost(cost) {
   return `$${cost.toFixed(cost < 1 ? 3 : 2)}`;
@@ -157,6 +166,249 @@ function formatReason(reason) {
     stored: 'Recorded',
   };
   return labels[reason] || reason || 'None';
+}
+
+function isRecord(value) {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+function safePositiveInteger(value) {
+  const number = Number(value);
+  return Number.isSafeInteger(number) && number > 0 ? number : 0;
+}
+
+function safePositiveMs(value) {
+  const number = Number(value);
+  return Number.isSafeInteger(number) && number > 0 ? number : 0;
+}
+
+function validThinkingAggregate(entry) {
+  if (!isRecord(entry)) return null;
+  const reportedCount = safePositiveInteger(entry.reportedCount);
+  const totalMs = safePositiveMs(entry.totalMs);
+  if (!reportedCount || !totalMs) return null;
+
+  const averageMs = totalMs / reportedCount;
+  if (averageMs < THINKING_MIN_MS || averageMs > THINKING_MAX_MS) return null;
+
+  return { reportedCount, totalMs };
+}
+
+function createThinkingBucket() {
+  return {
+    reportedCount: 0,
+    totalMs: 0,
+    models: Object.create(null),
+  };
+}
+
+function addThinkingMetric(bucket, model, reportedCount, totalMs) {
+  if (!Number.isSafeInteger(bucket.reportedCount + reportedCount)) return;
+  if (!Number.isSafeInteger(bucket.totalMs + totalMs)) return;
+
+  const current = bucket.models[model] || {
+    model,
+    reportedCount: 0,
+    totalMs: 0,
+  };
+  if (!Number.isSafeInteger(current.reportedCount + reportedCount)) return;
+  if (!Number.isSafeInteger(current.totalMs + totalMs)) return;
+
+  current.reportedCount += reportedCount;
+  current.totalMs += totalMs;
+  bucket.models[model] = current;
+  bucket.reportedCount += reportedCount;
+  bucket.totalMs += totalMs;
+}
+
+function finalizeThinkingBucket(bucket) {
+  const models = Object.values(bucket.models)
+    .map((model) => ({
+      ...model,
+      averageMs: model.reportedCount > 0 ? model.totalMs / model.reportedCount : 0,
+    }))
+    .sort((left, right) =>
+      right.reportedCount - left.reportedCount ||
+      right.totalMs - left.totalMs ||
+      left.model.localeCompare(right.model)
+    );
+
+  return {
+    reportedCount: bucket.reportedCount,
+    totalMs: bucket.totalMs,
+    averageMs: bucket.reportedCount > 0 ? bucket.totalMs / bucket.reportedCount : 0,
+    models,
+  };
+}
+
+function normalizedProvider(providerValue) {
+  return typeof normalizeProviderId === 'function'
+    ? normalizeProviderId(providerValue)
+    : String(providerValue || '').trim().toLowerCase();
+}
+
+function validDateKey(date) {
+  if (typeof parseDateKey === 'function') return Boolean(parseDateKey(date));
+  return /^\d{4}-\d{2}-\d{2}$/.test(String(date || ''));
+}
+
+function getThinkingStats(byThinkingProviderModel = {}, todayDate = todayKey()) {
+  const today = createThinkingBucket();
+  const allTime = createThinkingBucket();
+  if (!isRecord(byThinkingProviderModel)) {
+    return {
+      today: finalizeThinkingBucket(today),
+      allTime: finalizeThinkingBucket(allTime),
+    };
+  }
+
+  for (const [date, providers] of Object.entries(byThinkingProviderModel)) {
+    if (!validDateKey(date) || !isRecord(providers)) continue;
+
+    for (const [providerValue, models] of Object.entries(providers)) {
+      if (normalizedProvider(providerValue) !== THINKING_PROVIDER || !isRecord(models)) continue;
+
+      for (const [modelValue, rawMetric] of Object.entries(models)) {
+        const metric = validThinkingAggregate(rawMetric);
+        if (!metric) continue;
+
+        const model = displayModelName(modelValue) || 'unknown';
+        addThinkingMetric(allTime, model, metric.reportedCount, metric.totalMs);
+        if (date === todayDate) {
+          addThinkingMetric(today, model, metric.reportedCount, metric.totalMs);
+        }
+      }
+    }
+  }
+
+  return {
+    today: finalizeThinkingBucket(today),
+    allTime: finalizeThinkingBucket(allTime),
+  };
+}
+
+function formatThinkingDuration(ms) {
+  const value = Number(ms);
+  if (!Number.isFinite(value) || value <= 0) return '0s';
+
+  const exactSeconds = value / 1000;
+  if (exactSeconds < 10) {
+    const rounded = Math.round(exactSeconds * 10) / 10;
+    return `${rounded.toFixed(rounded % 1 === 0 ? 0 : 1)}s`;
+  }
+
+  const totalSeconds = Math.max(1, Math.round(exactSeconds));
+  if (totalSeconds < 60) return `${totalSeconds}s`;
+
+  const totalMinutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  if (totalMinutes < 60) {
+    return seconds ? `${totalMinutes}m ${seconds}s` : `${totalMinutes}m`;
+  }
+
+  const hours = Math.floor(totalSeconds / 3600);
+  const remainingSeconds = totalSeconds - (hours * 3600);
+  const minutes = Math.floor(remainingSeconds / 60);
+  const remainingWholeSeconds = remainingSeconds % 60;
+  const parts = [`${hours}h`];
+  if (minutes) parts.push(`${minutes}m`);
+  if (remainingWholeSeconds) parts.push(`${remainingWholeSeconds}s`);
+  return parts.join(' ');
+}
+
+function setThinkingValue(id, value, label) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.textContent = String(value);
+  if (label) el.setAttribute('aria-label', label);
+}
+
+function renderThinkingModelRows(models = []) {
+  const container = document.getElementById('thinkingModelRows');
+  if (!container) return;
+  container.replaceChildren();
+
+  if (!models.length) {
+    const row = document.createElement('tr');
+    const cell = document.createElement('td');
+    cell.className = 'thinking-empty';
+    cell.setAttribute('colspan', '4');
+    cell.textContent = 'No timed ChatGPT responses today.';
+    row.append(cell);
+    container.append(row);
+    return;
+  }
+
+  for (const model of models) {
+    const row = document.createElement('tr');
+
+    const label = document.createElement('th');
+    label.className = 'thinking-model-name';
+    label.setAttribute('scope', 'row');
+    label.textContent = model.model;
+
+    const timed = document.createElement('td');
+    timed.textContent = String(model.reportedCount);
+    timed.setAttribute('aria-label', `${model.reportedCount} timed responses`);
+
+    const average = document.createElement('td');
+    average.textContent = formatThinkingDuration(model.averageMs);
+    average.setAttribute('aria-label', `${formatThinkingDuration(model.averageMs)} average`);
+
+    const total = document.createElement('td');
+    total.textContent = formatThinkingDuration(model.totalMs);
+    total.setAttribute('aria-label', `${formatThinkingDuration(model.totalMs)} total`);
+
+    row.append(label, timed, average, total);
+    container.append(row);
+  }
+}
+
+function updateThinkingBreakdown(data = {}, todayDate = todayKey()) {
+  const stats = getThinkingStats(data.byThinkingProviderModel, todayDate);
+  const todayAverage = stats.today.reportedCount
+    ? formatThinkingDuration(stats.today.averageMs)
+    : '—';
+  const allTimeAverage = stats.allTime.reportedCount
+    ? formatThinkingDuration(stats.allTime.averageMs)
+    : '—';
+
+  setText('thinkingNote', THINKING_NOTE);
+  setThinkingValue(
+    'thinkingTodayTotal',
+    formatThinkingDuration(stats.today.totalMs),
+    `${formatThinkingDuration(stats.today.totalMs)} total thinking time today`
+  );
+  setThinkingValue(
+    'thinkingTodayAverage',
+    todayAverage,
+    stats.today.reportedCount
+      ? `${todayAverage} average thinking time today`
+      : 'No timed ChatGPT responses today'
+  );
+  setThinkingValue(
+    'thinkingTodayTimed',
+    stats.today.reportedCount,
+    `${stats.today.reportedCount} timed ChatGPT responses today`
+  );
+  setThinkingValue(
+    'thinkingAllTimeTotal',
+    formatThinkingDuration(stats.allTime.totalMs),
+    `${formatThinkingDuration(stats.allTime.totalMs)} all-time total thinking time`
+  );
+  setThinkingValue(
+    'thinkingAllTimeAverage',
+    allTimeAverage,
+    stats.allTime.reportedCount
+      ? `${allTimeAverage} all-time average thinking time`
+      : 'No timed ChatGPT responses recorded'
+  );
+  setThinkingValue(
+    'thinkingAllTimeTimed',
+    stats.allTime.reportedCount,
+    `${stats.allTime.reportedCount} all-time timed ChatGPT responses`
+  );
+  renderThinkingModelRows(stats.today.models);
 }
 
 function getLatestSessionActivity(sessions = {}) {
@@ -529,6 +781,7 @@ function updateDisplay() {
     renderSparkline(getRecentDays(data.byDate, 7));
     updateProviderBreakdown(data, todayDate);
     updateModelBreakdown(data, todayDate);
+    updateThinkingBreakdown(data, todayDate);
     requestBackgroundStatus((status) => {
       if (status) renderDiagnostics(status);
     });
@@ -659,7 +912,15 @@ function parseJsonBackup(text) {
   const data = payload.data && typeof payload.data === 'object' && !Array.isArray(payload.data)
     ? payload.data
     : payload;
-  const recognizableKeys = ['byDate', 'byModel', 'byProviderModel', 'byHour', 'sessions', 'total'];
+  const recognizableKeys = [
+    'byDate',
+    'byModel',
+    'byProviderModel',
+    'byThinkingProviderModel',
+    'byHour',
+    'sessions',
+    'total',
+  ];
   if (!recognizableKeys.some((key) => Object.hasOwn(data, key))) {
     throw new Error('This does not look like a GPTandME backup.');
   }
@@ -678,7 +939,7 @@ function restoreJsonText(text) {
   const backupTotal = sumCounts(backup.data.byDate || {});
   const confirmed = askForConfirmation(
     `Restore this backup (${pluralize(backupTotal, 'prompt')})? ` +
-    'It replaces current counts, hours, sessions, settings, and diagnostics. This cannot be undone.'
+    'It replaces current prompt counts, thinking-time aggregates, hours, sessions, settings, and diagnostics. This cannot be undone.'
   );
   if (!confirmed) {
     setOperationStatus('JSON restore canceled. No data changed.', 'info');
@@ -703,8 +964,8 @@ function restoreJsonText(text) {
 function requestReset(type, button = null) {
   const resetToday = type === 'resetToday';
   const message = resetToday
-    ? 'Reset today’s data? This deletes today’s prompt and hourly counts and clears session and recent diagnostic history. Other dated counts remain. This cannot be undone.'
-    : 'Reset all usage data? This deletes all prompt counts, hourly counts, sessions, and recent diagnostics stored by GPTandME. This cannot be undone.';
+    ? 'Reset today’s data? This deletes today’s prompt, hourly, and thinking-time aggregates and clears session and recent diagnostic history. Other dated counts remain. This cannot be undone.'
+    : 'Reset all usage data? This deletes all prompt counts, thinking-time aggregates, hourly counts, sessions, and recent diagnostics stored by GPTandME. This cannot be undone.';
 
   if (!askForConfirmation(message)) {
     setOperationStatus('Reset canceled. No data changed.', 'info');
@@ -718,7 +979,7 @@ function requestReset(type, button = null) {
     if (response?.ok) {
       setOperationStatus(
         resetToday
-          ? 'Today’s data and session history were reset.'
+          ? 'Today’s prompt and thinking-time data plus session history were reset.'
           : 'All locally stored usage data was reset.',
         'success'
       );
@@ -742,6 +1003,7 @@ function startPopup() {
         changes.total ||
         changes.byModel ||
         changes.byProviderModel ||
+        changes.byThinkingProviderModel ||
         changes.byHour ||
         changes.sessions ||
         changes.showPageCounter ||
@@ -836,7 +1098,9 @@ if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
     findSupportedSite,
     formatReason,
+    formatThinkingDuration,
     formatTime,
+    getThinkingStats,
     getLatestSessionActivity,
     normalizeLastCounted,
     csvImportSummary,

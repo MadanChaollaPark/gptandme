@@ -155,6 +155,71 @@
         font-weight: 700;
         text-transform: uppercase;
       }
+      .thinking-section {
+        border-top: 1px solid var(--border);
+        margin-top: 10px;
+        padding-top: 8px;
+      }
+      .thinking-summary {
+        display: grid;
+        gap: 6px;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+      .thinking-card {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 7px;
+        padding: 6px 8px;
+      }
+      .thinking-card-title {
+        color: var(--section);
+        font-size: 11px;
+        font-weight: 700;
+        margin-bottom: 3px;
+      }
+      .thinking-card .row { margin: 3px 0; }
+      .thinking-card .row > div:first-child {
+        color: var(--muted);
+        font-size: 11px;
+      }
+      .thinking-table {
+        border-collapse: collapse;
+        font-size: 12px;
+        margin-top: 6px;
+        width: 100%;
+      }
+      .thinking-table caption {
+        color: var(--section);
+        font-size: 11px;
+        font-weight: 700;
+        margin-bottom: 2px;
+        text-align: left;
+      }
+      .thinking-table th,
+      .thinking-table td {
+        border-bottom: 1px solid var(--border);
+        padding: 3px 4px;
+      }
+      .thinking-table th { color: var(--muted); font-weight: 700; }
+      .thinking-table th:first-child,
+      .thinking-table td:first-child { text-align: left; }
+      .thinking-table th:not(:first-child),
+      .thinking-table td:not(:first-child) {
+        font-variant-numeric: tabular-nums;
+        text-align: right;
+        white-space: nowrap;
+      }
+      .thinking-model-name {
+        max-width: 128px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .thinking-empty {
+        color: var(--muted);
+        text-align: left !important;
+      }
+      .thinking-note { margin-top: 5px; }
       .status-grid {
         background: var(--surface);
         border: 1px solid var(--border);
@@ -223,6 +288,39 @@
       <div id="modelBreakdown"></div>
     </div>
 
+    <section id="thinkingSection" class="thinking-section" aria-labelledby="thinkingTitle" aria-describedby="thinkingNote">
+      <div id="thinkingTitle" class="section-title">Thinking time</div>
+      <div class="thinking-summary" role="group" aria-label="Provider-reported ChatGPT thinking time">
+        <div class="thinking-card">
+          <div class="thinking-card-title">Today</div>
+          <div class="row"><div>Total</div><div id="thinkingTodayTotal" class="value">0s</div></div>
+          <div class="row"><div>Average</div><div id="thinkingTodayAverage" class="value">—</div></div>
+          <div class="row"><div>Timed</div><div id="thinkingTodayTimed" class="value">0</div></div>
+        </div>
+        <div class="thinking-card">
+          <div class="thinking-card-title">All time</div>
+          <div class="row"><div>Total</div><div id="thinkingAllTimeTotal" class="value">0s</div></div>
+          <div class="row"><div>Average</div><div id="thinkingAllTimeAverage" class="value">—</div></div>
+          <div class="row"><div>Timed</div><div id="thinkingAllTimeTimed" class="value">0</div></div>
+        </div>
+      </div>
+      <table class="thinking-table" aria-label="ChatGPT thinking time by model today">
+        <caption>By model today</caption>
+        <thead>
+          <tr>
+            <th scope="col">Model</th>
+            <th scope="col">Timed</th>
+            <th scope="col">Avg</th>
+            <th scope="col">Total</th>
+          </tr>
+        </thead>
+        <tbody id="thinkingModelRows">
+          <tr><td class="thinking-empty" colspan="4">No timed ChatGPT responses today.</td></tr>
+        </tbody>
+      </table>
+      <p id="thinkingNote" class="muted thinking-note">Provider-reported ChatGPT values from finalized thinking labels. Only timed responses enter averages; untimed prompts are not treated as 0.</p>
+    </section>
+
     <label class="setting">
       <input id="pageCounterToggle" type="checkbox" />
       <span>Show in-page counter</span>
@@ -250,7 +348,7 @@
       <summary>Back up, merge, or reset data</summary>
       <div class="data-group">
         <div class="data-group-title">Complete backup</div>
-        <p class="muted">JSON preserves counts, hours, sessions, settings, and diagnostics. Restoring replaces the data currently stored.</p>
+        <p class="muted">JSON preserves counts, ChatGPT thinking-time aggregates, hours, sessions, settings, and diagnostics. Restoring replaces the data currently stored.</p>
         <div class="button-row">
           <button id="downloadJson">Download JSON backup</button>
           <button id="restoreJson">Restore JSON backup</button>
@@ -270,7 +368,7 @@
 
       <div class="data-group">
         <div class="data-group-title">Destructive actions</div>
-        <p class="muted">Reset today also clears session and recent diagnostic history. Reset all removes all locally stored usage data.</p>
+        <p class="muted">Reset today deletes today’s prompt and thinking-time aggregates and clears session and recent diagnostic history. Reset all removes all locally stored usage data.</p>
         <div class="button-row">
           <button id="resetToday" class="danger">Reset today’s data</button>
           <button id="resetAll" class="danger">Reset all data</button>

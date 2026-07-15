@@ -194,7 +194,7 @@ describe('background counting diagnostics', () => {
     assert.equal(env.storage.lastCountModel, 'gpt-4o');
     assert.equal(env.storage.lastCountSessionId, 'session-1');
     assert.equal(env.storage.extensionVersion, '9.9.9');
-    assert.equal(env.storage.storageSchemaVersion, 2);
+    assert.equal(env.storage.storageSchemaVersion, 3);
     assert.equal(env.badge.text, '1');
   });
 
@@ -277,7 +277,7 @@ describe('background storage support hooks', () => {
     assert.deepEqual(response.status.byHour, {});
     assert.deepEqual(response.status.sessions, {});
     assert.equal(response.status.total, 2);
-    assert.equal(response.status.storageSchemaVersion, 2);
+    assert.equal(response.status.storageSchemaVersion, 3);
     assert.equal(response.status.extensionVersion, '9.9.9');
   });
 
@@ -296,8 +296,8 @@ describe('background storage support hooks', () => {
 
     const exported = await sendMessage(env, { type: 'exportData' });
     assert.equal(exported.ok, true);
-    assert.equal(exported.export.schemaVersion, 2);
-    assert.equal(exported.export.storageSchemaVersion, 2);
+    assert.equal(exported.export.schemaVersion, 3);
+    assert.equal(exported.export.storageSchemaVersion, 3);
     assert.equal(exported.export.extensionVersion, '9.9.9');
     assert.equal(exported.export.data.total, 2);
     assert.equal(exported.export.data.lastCountReason, 'existing');

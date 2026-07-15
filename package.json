@@ -1,6 +1,6 @@
 {
   "name": "gptandme",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "private": true,
   "description": "Local-first Chrome extension for prompt counts across supported AI chat sites.",
   "scripts": {

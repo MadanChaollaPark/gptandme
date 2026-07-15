@@ -54,6 +54,16 @@
   });
   const UNSAFE_OBJECT_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
   const MAX_STORAGE_KEY_LENGTH = 160;
+  const THINKING_STORAGE_KEY = 'byThinkingProviderModel';
+  const THINKING_DEDUPE_STORAGE_KEY = 'recentThinkingEvents';
+  const THINKING_CONTRACT_VERSION = '1.5.0';
+  const THINKING_MESSAGE_TYPE = 'thinkingMetric';
+  const THINKING_SOURCE_PROVIDER_REPORTED = 'provider-reported';
+  const THINKING_DURATION_MIN_MS = 1000;
+  const THINKING_DURATION_MAX_MS = 6 * 60 * 60 * 1000;
+  const THINKING_EVENT_DEDUPE_TTL_MS = 24 * 60 * 60 * 1000;
+  const MAX_RECENT_THINKING_EVENTS = 500;
+  const MAX_THINKING_EVENT_ID_LENGTH = 180;
 
   function pricePerPromptFromTokenRates(rates = {}, estimate = DEFAULT_PROMPT_TOKEN_ESTIMATE) {
     const input = Number(rates.input || 0) * Number(estimate.input || 0);
@@ -216,6 +226,10 @@
     return Number.isSafeInteger(count) && count >= 0 ? count : 0;
   }
 
+  function isPlainObject(value) {
+    return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+  }
+
   function parseDateKey(key) {
     const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(key);
     if (!match) return null;
@@ -337,6 +351,304 @@
     const raw = safeStorageKey(model).toLowerCase();
     if (!/^[a-z0-9][a-z0-9._:/+\-]{0,79}$/.test(raw)) return 'unknown';
     return MODEL_ALIASES[raw] || raw;
+  }
+
+  function normalizeThinkingDurationMs(value) {
+    if (typeof value !== 'number') return null;
+    const ms = Number(value);
+    if (!Number.isSafeInteger(ms)) return null;
+    if (ms < THINKING_DURATION_MIN_MS || ms > THINKING_DURATION_MAX_MS) return null;
+    return ms;
+  }
+
+  function normalizeThinkingEventId(value) {
+    const text = String(value ?? '').trim();
+    if (!text || text.length > MAX_THINKING_EVENT_ID_LENGTH) return '';
+    if (UNSAFE_OBJECT_KEYS.has(text)) return '';
+    return /^[a-zA-Z0-9:._-]+$/.test(text) ? text : '';
+  }
+
+  function thinkingUnitRank(unit) {
+    if (unit === 'hour' || unit === 'hours' || unit === 'h') return 0;
+    if (unit === 'minute' || unit === 'minutes' || unit === 'm') return 1;
+    if (unit === 'second' || unit === 'seconds' || unit === 's') return 2;
+    return -1;
+  }
+
+  function thinkingUnitName(unit) {
+    if (unit === 'hour' || unit === 'hours' || unit === 'h') return 'hours';
+    if (unit === 'minute' || unit === 'minutes' || unit === 'm') return 'minutes';
+    if (unit === 'second' || unit === 'seconds' || unit === 's') return 'seconds';
+    return null;
+  }
+
+  function parseThinkingWordDuration(body) {
+    const tokens = body.split(/\s+/).filter(Boolean);
+    if (!tokens.length || tokens.length % 2 !== 0) return null;
+
+    const parts = { hours: 0, minutes: 0, seconds: 0 };
+    let lastRank = -1;
+    for (let index = 0; index < tokens.length; index += 2) {
+      if (!/^\d+$/.test(tokens[index])) return null;
+      const amount = Number(tokens[index]);
+      const unit = tokens[index + 1];
+      const rank = thinkingUnitRank(unit);
+      const name = thinkingUnitName(unit);
+      if (!Number.isSafeInteger(amount) || amount <= 0 || rank === -1 || !name) return null;
+      if (rank <= lastRank) return null;
+      if (amount === 1 && unit.endsWith('s')) return null;
+      if (amount !== 1 && !unit.endsWith('s')) return null;
+      parts[name] = amount;
+      lastRank = rank;
+    }
+
+    return parts;
+  }
+
+  function parseThinkingCompactDuration(body) {
+    if (!/^\d+\s*[hms](?:\s+\d+\s*[hms])*$/.test(body)) return null;
+
+    const parts = { hours: 0, minutes: 0, seconds: 0 };
+    let lastRank = -1;
+    for (const token of body.match(/\d+\s*[hms]/g) || []) {
+      const match = /^(\d+)\s*([hms])$/.exec(token);
+      if (!match) return null;
+      const amount = Number(match[1]);
+      const unit = match[2];
+      const rank = thinkingUnitRank(unit);
+      const name = thinkingUnitName(unit);
+      if (!Number.isSafeInteger(amount) || amount <= 0 || rank === -1 || !name) return null;
+      if (rank <= lastRank) return null;
+      parts[name] = amount;
+      lastRank = rank;
+    }
+
+    return parts;
+  }
+
+  function thinkingPartsToMs(parts) {
+    if (!parts) return null;
+    const hours = Number(parts.hours || 0);
+    const minutes = Number(parts.minutes || 0);
+    const seconds = Number(parts.seconds || 0);
+    if (
+      !Number.isSafeInteger(hours) ||
+      !Number.isSafeInteger(minutes) ||
+      !Number.isSafeInteger(seconds) ||
+      hours < 0 ||
+      minutes < 0 ||
+      seconds < 0
+    ) {
+      return null;
+    }
+    if (hours > 0 && minutes >= 60) return null;
+    if ((hours > 0 || minutes > 0) && seconds >= 60) return null;
+
+    return normalizeThinkingDurationMs(
+      (hours * 60 * 60 * 1000) +
+      (minutes * 60 * 1000) +
+      (seconds * 1000)
+    );
+  }
+
+  function parseThinkingDurationMs(label) {
+    if (typeof label !== 'string') return null;
+    const text = label.replace(/\u00a0/g, ' ').replace(/\s+/g, ' ').trim().toLowerCase();
+    const match = /^(?:thought|reasoned) for (.+)$/.exec(text);
+    if (!match) return null;
+    const body = match[1];
+    return thinkingPartsToMs(parseThinkingWordDuration(body) || parseThinkingCompactDuration(body));
+  }
+
+  function normalizeThinkingMetric(message = {}) {
+    if (!isPlainObject(message)) return null;
+    if (message.type !== THINKING_MESSAGE_TYPE) return null;
+    if (message.source !== THINKING_SOURCE_PROVIDER_REPORTED) return null;
+
+    const eventId = normalizeThinkingEventId(message.eventId);
+    const thinkingMs = normalizeThinkingDurationMs(message.thinkingMs);
+    if (!eventId || thinkingMs === null) return null;
+
+    return {
+      eventId,
+      model: normalizeModelName(message.model),
+      thinkingMs,
+      source: THINKING_SOURCE_PROVIDER_REPORTED,
+    };
+  }
+
+  function normalizeThinkingAggregateRecord(record) {
+    if (!isPlainObject(record)) return null;
+    const reportedCount = Number(record.reportedCount);
+    const totalMs = Number(record.totalMs);
+    if (!Number.isSafeInteger(reportedCount) || reportedCount <= 0) return null;
+    if (!Number.isSafeInteger(totalMs) || totalMs <= 0) return null;
+
+    const averageMs = totalMs / reportedCount;
+    if (
+      !Number.isFinite(averageMs) ||
+      averageMs < THINKING_DURATION_MIN_MS ||
+      averageMs > THINKING_DURATION_MAX_MS
+    ) {
+      return null;
+    }
+
+    return { reportedCount, totalMs };
+  }
+
+  function mergeThinkingAggregate(target, provider, model, record) {
+    if (!target[provider]) target[provider] = {};
+    const existing = target[provider][model] || { reportedCount: 0, totalMs: 0 };
+    const reportedCount = existing.reportedCount + record.reportedCount;
+    const totalMs = existing.totalMs + record.totalMs;
+    if (!Number.isSafeInteger(reportedCount) || !Number.isSafeInteger(totalMs)) return;
+    target[provider][model] = { reportedCount, totalMs };
+  }
+
+  function normalizeThinkingProviderModelData(byThinkingProviderModel = {}) {
+    const normalized = {};
+    if (!isPlainObject(byThinkingProviderModel)) return normalized;
+
+    for (const [date, providers] of Object.entries(byThinkingProviderModel)) {
+      if (!parseDateKey(date) || !isPlainObject(providers)) continue;
+      const day = {};
+
+      for (const [providerValue, models] of Object.entries(providers)) {
+        if (!isPlainObject(models)) continue;
+        if (UNSAFE_OBJECT_KEYS.has(String(providerValue).trim())) continue;
+        const provider = normalizeProviderId(providerValue);
+
+        for (const [modelValue, recordValue] of Object.entries(models)) {
+          if (UNSAFE_OBJECT_KEYS.has(String(modelValue).trim())) continue;
+          const record = normalizeThinkingAggregateRecord(recordValue);
+          if (!record) continue;
+          const model = normalizeModelName(modelValue);
+          mergeThinkingAggregate(day, provider, model, record);
+        }
+      }
+
+      if (Object.keys(day).length) normalized[date] = day;
+    }
+
+    return normalized;
+  }
+
+  function thinkingAverageMs(record) {
+    const normalized = normalizeThinkingAggregateRecord(record);
+    return normalized ? normalized.totalMs / normalized.reportedCount : null;
+  }
+
+  function formatThinkingDuration(ms, emptyLabel = '—') {
+    const value = Number(ms);
+    if (
+      !Number.isFinite(value) ||
+      value < THINKING_DURATION_MIN_MS ||
+      value > THINKING_DURATION_MAX_MS
+    ) {
+      return emptyLabel;
+    }
+
+    const totalSeconds = value / 1000;
+    if (totalSeconds < 60) {
+      const rounded = Math.round(totalSeconds * 10) / 10;
+      return `${String(rounded).replace(/\.0$/, '')}s`;
+    }
+
+    let remainingSeconds = Math.round(totalSeconds);
+    const hours = Math.floor(remainingSeconds / 3600);
+    remainingSeconds -= hours * 3600;
+    const minutes = Math.floor(remainingSeconds / 60);
+    remainingSeconds -= minutes * 60;
+
+    const parts = [];
+    if (hours) parts.push(`${hours}h`);
+    if (minutes) parts.push(`${minutes}m`);
+    if (remainingSeconds) parts.push(`${remainingSeconds}s`);
+    return parts.join(' ') || emptyLabel;
+  }
+
+  function thinkingRecordWithAverage(record) {
+    const normalized = normalizeThinkingAggregateRecord(record);
+    if (!normalized) {
+      return {
+        reportedCount: 0,
+        totalMs: 0,
+        averageMs: null,
+        averageLabel: formatThinkingDuration(null),
+      };
+    }
+    const averageMs = normalized.totalMs / normalized.reportedCount;
+    return {
+      ...normalized,
+      averageMs,
+      averageLabel: formatThinkingDuration(averageMs),
+    };
+  }
+
+  function getThinkingStatsForDate(byThinkingProviderModel = {}, key = todayKey()) {
+    const normalized = normalizeThinkingProviderModelData(byThinkingProviderModel);
+    const day = normalized[key] || {};
+    const totalRecord = { reportedCount: 0, totalMs: 0 };
+    const providers = {};
+
+    for (const [provider, models] of Object.entries(day)) {
+      const providerRecord = { reportedCount: 0, totalMs: 0 };
+      const providerStats = { models: {} };
+
+      for (const [model, record] of Object.entries(models || {})) {
+        const modelStats = thinkingRecordWithAverage(record);
+        if (modelStats.reportedCount <= 0) continue;
+        const nextProviderCount = providerRecord.reportedCount + modelStats.reportedCount;
+        const nextProviderTotalMs = providerRecord.totalMs + modelStats.totalMs;
+        if (
+          !Number.isSafeInteger(nextProviderCount) ||
+          !Number.isSafeInteger(nextProviderTotalMs)
+        ) {
+          continue;
+        }
+        providerStats.models[model] = modelStats;
+        providerRecord.reportedCount = nextProviderCount;
+        providerRecord.totalMs = nextProviderTotalMs;
+      }
+
+      if (providerRecord.reportedCount <= 0) continue;
+      const nextTotalCount = totalRecord.reportedCount + providerRecord.reportedCount;
+      const nextTotalMs = totalRecord.totalMs + providerRecord.totalMs;
+      if (!Number.isSafeInteger(nextTotalCount) || !Number.isSafeInteger(nextTotalMs)) {
+        continue;
+      }
+      Object.assign(providerStats, thinkingRecordWithAverage(providerRecord));
+      providers[provider] = providerStats;
+      totalRecord.reportedCount = nextTotalCount;
+      totalRecord.totalMs = nextTotalMs;
+    }
+
+    return {
+      ...thinkingRecordWithAverage(totalRecord),
+      providers,
+    };
+  }
+
+  function normalizeRecentThinkingEvents(value = {}, now = Date.now()) {
+    const entries = [];
+    if (!isPlainObject(value)) return {};
+
+    for (const [rawKey, rawAt] of Object.entries(value)) {
+      const key = normalizeThinkingEventId(rawKey);
+      const at = Number(rawAt);
+      if (
+        !key ||
+        !Number.isFinite(at) ||
+        at <= 0 ||
+        now - at >= THINKING_EVENT_DEDUPE_TTL_MS
+      ) {
+        continue;
+      }
+      entries.push([key, at]);
+    }
+
+    entries.sort((left, right) => right[1] - left[1]);
+    return Object.fromEntries(entries.slice(0, MAX_RECENT_THINKING_EVENTS));
   }
 
   function displayModelName(model) {
@@ -843,6 +1155,15 @@
     PRICING_PROFILE_VERSION,
     PROVIDERS,
     SITES,
+    MAX_RECENT_THINKING_EVENTS,
+    THINKING_DEDUPE_STORAGE_KEY,
+    THINKING_CONTRACT_VERSION,
+    THINKING_DURATION_MAX_MS,
+    THINKING_DURATION_MIN_MS,
+    THINKING_EVENT_DEDUPE_TTL_MS,
+    THINKING_MESSAGE_TYPE,
+    THINKING_SOURCE_PROVIDER_REPORTED,
+    THINKING_STORAGE_KEY,
     buildHeatmapGrid,
     buildUsageCsv,
     csvEscape,
@@ -858,6 +1179,7 @@
     getRecentDays,
     getSessionStats,
     getStreak,
+    getThinkingStatsForDate,
     getWeekTotal,
     hourKey,
     isChatGptPromptEndpoint,
@@ -865,15 +1187,24 @@
     isUserSendPayload,
     mergeUsageData,
     normalizeModelName,
+    normalizeRecentThinkingEvents,
+    normalizeThinkingAggregateRecord,
+    normalizeThinkingDurationMs,
+    normalizeThinkingEventId,
+    normalizeThinkingMetric,
+    normalizeThinkingProviderModelData,
     normalizeProviderId,
     normalizeProviderModelData,
     parseDateKey,
+    parseThinkingDurationMs,
     parseUsageCsv,
     priceForModel,
     providerForHost,
     shouldCountKey,
     siteConfigForHost,
     sumCounts,
+    thinkingAverageMs,
+    formatThinkingDuration,
     todayKey,
   };
 });

@@ -1,6 +1,12 @@
 // content.js - counts sends and detects model/site context.
 
-const { SITES, shouldCountKey, todayKey } = GptAndMeShared;
+const {
+  SITES,
+  THINKING_DURATION_MAX_MS,
+  parseThinkingDurationMs,
+  shouldCountKey,
+  todayKey,
+} = GptAndMeShared;
 const matchedSiteEntry = Object.entries(SITES).find(([, config]) =>
   (config.hosts || []).includes(location.hostname)
 );
@@ -47,6 +53,11 @@ window.addEventListener('__gptandme_model', (e) => {
 window.addEventListener('__gptandme_send', (event) => {
   const detail = event?.detail;
   if (!detail || detail.provider !== provider || !detail.eventId) return;
+  // ChatGPT uses the browser webRequest path plus the real composer DOM gate;
+  // its page-world interceptor emits model metadata, not send events. Ignoring
+  // synthetic ChatGPT send events prevents a page script from authorizing a
+  // timing capture that did not originate from a composer send.
+  if (provider === 'chatgpt') return;
   if (pendingDomFallback !== null && typeof clearTimeout === 'function') {
     clearTimeout(pendingDomFallback);
     pendingDomFallback = null;
@@ -59,10 +70,25 @@ window.addEventListener('__gptandme_send', (event) => {
   });
 });
 
+function modelSlugElements(root = document) {
+  try {
+    const elements = root.querySelectorAll?.('[data-message-model-slug]');
+    if (elements?.length) return elements;
+  } catch (_) {
+    // Some test DOMs only implement the historical div-specific selector.
+  }
+
+  try {
+    return root.querySelectorAll?.('div[data-message-model-slug]') || [];
+  } catch (_) {
+    return [];
+  }
+}
+
 // Fallback: data-message-model-slug on the latest assistant response
 function modelFromSlugAttr() {
-  const divs = document.querySelectorAll('div[data-message-model-slug]');
-  if (divs.length) return divs[divs.length - 1].getAttribute('data-message-model-slug');
+  const elements = modelSlugElements(document);
+  if (elements.length) return elements[elements.length - 1].getAttribute('data-message-model-slug');
   return null;
 }
 
@@ -104,6 +130,349 @@ function detectModel() {
   );
 }
 
+// ---------- CHATGPT PROVIDER-REPORTED THINKING ----------
+
+// Provider duration validation allows defensive upper bounds up to six hours,
+// but a DOM observer should not remain active that long if a page never emits a
+// finalized label. Thirty minutes covers normal long responses without turning
+// an untimed response into a persistent page-wide observer.
+const THINKING_CAPTURE_WINDOW_MS = Math.min(THINKING_DURATION_MAX_MS, 30 * 60 * 1000);
+const MAX_TRACKED_THINKING_TURN_IDS = 500;
+
+let chatGptThinkingObserver = null;
+let chatGptThinkingScanQueued = false;
+let chatGptThinkingExpiryTimer = null;
+let chatGptThinkingDomEventGate = false;
+let pendingChatGptThinkingCaptures = [];
+const seenChatGptThinkingTurnIds = new Set();
+const candidateChatGptThinkingTurnIds = new Map();
+const reportedChatGptThinkingTurnIds = new Set();
+
+function supportsChatGptThinkingCapture() {
+  return provider === 'chatgpt';
+}
+
+function hashThinkingString(value) {
+  const text = String(value ?? '');
+  let hash = 0x811c9dc5;
+  for (let index = 0; index < text.length; index += 1) {
+    hash ^= text.charCodeAt(index);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return (hash >>> 0).toString(36);
+}
+
+function boundedRemember(set, value, limit = MAX_TRACKED_THINKING_TURN_IDS) {
+  if (!value) return;
+  set.add(value);
+  while (set.size > limit) {
+    set.delete(set.values().next().value);
+  }
+}
+
+function normalizedThinkingTurnId(section) {
+  const rawTurnId = section?.getAttribute?.('data-turn-id');
+  const text = String(rawTurnId ?? '').trim();
+  if (!text) return null;
+  if (/^[a-zA-Z0-9:._-]{1,180}$/.test(text)) return text;
+  return `legacy-${hashThinkingString(text)}`;
+}
+
+function chatGptThinkingSections() {
+  if (!supportsChatGptThinkingCapture()) return [];
+  try {
+    return [...document.querySelectorAll('section[data-turn-id]')];
+  } catch (_) {
+    return [];
+  }
+}
+
+function rememberExistingChatGptThinkingTurnIds() {
+  for (const section of chatGptThinkingSections()) {
+    boundedRemember(seenChatGptThinkingTurnIds, normalizedThinkingTurnId(section));
+  }
+}
+
+function parseProviderReportedThinkingMs(label) {
+  return parseThinkingDurationMs(label);
+}
+
+function providerReportedThinkingMsFromButton(button) {
+  const labels = [
+    button?.getAttribute?.('aria-label'),
+    button?.textContent,
+  ];
+
+  for (const label of labels) {
+    const thinkingMs = parseProviderReportedThinkingMs(label);
+    if (thinkingMs !== null) return thinkingMs;
+  }
+
+  return null;
+}
+
+function providerReportedThinkingMsFromSection(section) {
+  let buttons = [];
+  try {
+    buttons = [...(section.querySelectorAll?.('button') || [])];
+  } catch (_) {
+    return null;
+  }
+
+  for (const button of buttons) {
+    const thinkingMs = providerReportedThinkingMsFromButton(button);
+    if (thinkingMs !== null) return thinkingMs;
+  }
+
+  return null;
+}
+
+function modelSlugFromSection(section) {
+  const selector = '[data-message-model-slug]';
+  try {
+    if (section?.matches?.(selector)) return section.getAttribute('data-message-model-slug');
+  } catch (_) {
+    // Fall through to descendants.
+  }
+
+  try {
+    const element = modelSlugElements(section)[0];
+    if (element) return element.getAttribute('data-message-model-slug');
+  } catch (_) {
+    // Ignore malformed or detached provider DOM.
+  }
+
+  return null;
+}
+
+function modelFromThinkingSection(section, fallbackModel = null) {
+  return (
+    normalizeDetectedModel(modelSlugFromSection(section)) ||
+    normalizeDetectedModel(fallbackModel) ||
+    'unknown'
+  );
+}
+
+function sendThinkingMetric(turnId, section, thinkingMs, fallbackModel = null) {
+  const request = chrome.runtime?.sendMessage?.({
+    type: 'thinkingMetric',
+    eventId: turnId,
+    model: modelFromThinkingSection(section, fallbackModel),
+    thinkingMs,
+    source: 'provider-reported',
+  });
+  request?.catch?.(() => {});
+}
+
+function hasPendingChatGptThinkingCapture() {
+  return pendingChatGptThinkingCaptures.length > 0;
+}
+
+function currentChatGptThinkingRoute() {
+  return String(location.pathname || '/');
+}
+
+function isNewChatGptConversationRoute(previousRoute, currentRoute) {
+  if (previousRoute === '/' && /^\/c\/[^/]+/.test(currentRoute)) return true;
+  return previousRoute.startsWith('/g/') && currentRoute.startsWith(`${previousRoute}/c/`);
+}
+
+function captureMatchesCurrentRoute(capture, currentRoute = currentChatGptThinkingRoute()) {
+  if (capture.route === currentRoute) return true;
+  if (
+    capture.canBindNewConversationRoute &&
+    isNewChatGptConversationRoute(capture.route, currentRoute)
+  ) {
+    capture.route = currentRoute;
+    capture.canBindNewConversationRoute = false;
+    return true;
+  }
+  return false;
+}
+
+function isAssistantThinkingSection(section) {
+  const turnType = String(section?.getAttribute?.('data-turn') || '').trim().toLowerCase();
+  if (turnType) return turnType === 'assistant';
+  return modelSlugElements(section).length > 0;
+}
+
+function hasChatGptBusyControl() {
+  try {
+    return [...document.querySelectorAll('button, [role="button"], [data-testid], [aria-label]')]
+      .some(isBusyControl);
+  } catch (_) {
+    return false;
+  }
+}
+
+function pruneChatGptThinkingCaptureState(now = Date.now()) {
+  const currentRoute = currentChatGptThinkingRoute();
+  pendingChatGptThinkingCaptures = pendingChatGptThinkingCaptures
+    .filter((capture) => capture.expiresAt > now && captureMatchesCurrentRoute(capture, currentRoute));
+
+  for (const [turnId, capture] of candidateChatGptThinkingTurnIds.entries()) {
+    if (
+      capture.expiresAt <= now ||
+      !captureMatchesCurrentRoute(capture, currentRoute)
+    ) {
+      candidateChatGptThinkingTurnIds.delete(turnId);
+    }
+  }
+}
+
+function stopChatGptThinkingObserverIfIdle() {
+  if (hasPendingChatGptThinkingCapture() || candidateChatGptThinkingTurnIds.size) return;
+  chatGptThinkingObserver?.disconnect?.();
+  chatGptThinkingObserver = null;
+  if (chatGptThinkingExpiryTimer !== null && typeof clearTimeout === 'function') {
+    clearTimeout(chatGptThinkingExpiryTimer);
+    chatGptThinkingExpiryTimer = null;
+  }
+}
+
+function scheduleChatGptThinkingExpiry() {
+  if (typeof setTimeout !== 'function') return;
+  if (chatGptThinkingExpiryTimer !== null && typeof clearTimeout === 'function') {
+    clearTimeout(chatGptThinkingExpiryTimer);
+    chatGptThinkingExpiryTimer = null;
+  }
+
+  const expirations = [
+    ...pendingChatGptThinkingCaptures.map((capture) => capture.expiresAt),
+    ...[...candidateChatGptThinkingTurnIds.values()].map((capture) => capture.expiresAt),
+  ].filter(Number.isFinite);
+  if (!expirations.length) return;
+
+  const delay = Math.max(0, Math.min(...expirations) - Date.now() + 1);
+  chatGptThinkingExpiryTimer = setTimeout(() => {
+    chatGptThinkingExpiryTimer = null;
+    scanChatGptThinkingSections();
+  }, delay);
+}
+
+function scanChatGptThinkingSections() {
+  if (!supportsChatGptThinkingCapture()) return;
+
+  const now = Date.now();
+  pruneChatGptThinkingCaptureState(now);
+  const sections = chatGptThinkingSections();
+  const responseBusy = hasChatGptBusyControl();
+  if (responseBusy) {
+    for (const capture of pendingChatGptThinkingCaptures) capture.sawBusy = true;
+  }
+
+  for (const section of sections) {
+    const turnId = normalizedThinkingTurnId(section);
+    if (!turnId || seenChatGptThinkingTurnIds.has(turnId)) continue;
+    boundedRemember(seenChatGptThinkingTurnIds, turnId);
+    if (!hasPendingChatGptThinkingCapture() || !isAssistantThinkingSection(section)) continue;
+
+    // A new assistant turn consumes exactly one user-send authorization even
+    // when ChatGPT never exposes a timing label for that response. Keeping the
+    // turn as a candidate lets its finalized label appear later without
+    // authorizing an unrelated future response.
+    const capture = pendingChatGptThinkingCaptures.shift();
+    capture.sawBusy = capture.sawBusy || responseBusy;
+    candidateChatGptThinkingTurnIds.set(turnId, capture);
+  }
+
+  for (const section of sections) {
+    const turnId = normalizedThinkingTurnId(section);
+    const capture = turnId ? candidateChatGptThinkingTurnIds.get(turnId) : null;
+    if (
+      !turnId ||
+      !capture ||
+      reportedChatGptThinkingTurnIds.has(turnId)
+    ) {
+      continue;
+    }
+
+    if (responseBusy) capture.sawBusy = true;
+
+    const thinkingMs = providerReportedThinkingMsFromSection(section);
+    if (thinkingMs === null) {
+      // Once ChatGPT transitions from its stop/cancel state back to idle, an
+      // assistant turn without a timing label is finalized as untimed. This
+      // prevents the observer from living for the full safety timeout.
+      if (capture.sawBusy && !responseBusy) {
+        candidateChatGptThinkingTurnIds.delete(turnId);
+      }
+      continue;
+    }
+
+    sendThinkingMetric(turnId, section, thinkingMs, capture.model);
+    boundedRemember(reportedChatGptThinkingTurnIds, turnId);
+    candidateChatGptThinkingTurnIds.delete(turnId);
+  }
+
+  pruneChatGptThinkingCaptureState(now);
+  stopChatGptThinkingObserverIfIdle();
+  scheduleChatGptThinkingExpiry();
+}
+
+function queueChatGptThinkingScan() {
+  if (!supportsChatGptThinkingCapture() || chatGptThinkingScanQueued) return;
+  chatGptThinkingScanQueued = true;
+  const schedule = typeof queueMicrotask === 'function'
+    ? queueMicrotask
+    : (callback) => setTimeout(callback, 0);
+  schedule(() => {
+    chatGptThinkingScanQueued = false;
+    scanChatGptThinkingSections();
+  });
+}
+
+function startChatGptThinkingObserver() {
+  if (chatGptThinkingObserver || !supportsChatGptThinkingCapture()) return;
+  const Observer = window.MutationObserver || (typeof MutationObserver !== 'undefined' && MutationObserver);
+  const target = document.body || document.documentElement;
+  if (!Observer || !target) return;
+
+  try {
+    chatGptThinkingObserver = new Observer(queueChatGptThinkingScan);
+    chatGptThinkingObserver.observe(target, {
+      childList: true,
+      subtree: true,
+      characterData: true,
+    });
+  } catch (_) {
+    chatGptThinkingObserver = null;
+  }
+}
+
+function queueChatGptThinkingCapture() {
+  if (!supportsChatGptThinkingCapture()) return;
+  const now = Date.now();
+  pruneChatGptThinkingCaptureState(now);
+  rememberExistingChatGptThinkingTurnIds();
+  const route = currentChatGptThinkingRoute();
+  pendingChatGptThinkingCaptures.push({
+    expiresAt: now + THINKING_CAPTURE_WINDOW_MS,
+    route,
+    canBindNewConversationRoute: route === '/' || route.startsWith('/g/'),
+    model: detectModel(),
+    sawBusy: hasChatGptBusyControl(),
+  });
+  while (pendingChatGptThinkingCaptures.length > 20) {
+    pendingChatGptThinkingCaptures.shift();
+  }
+  startChatGptThinkingObserver();
+  queueChatGptThinkingScan();
+}
+
+function queueChatGptThinkingCaptureFromDom() {
+  if (chatGptThinkingDomEventGate) return false;
+  chatGptThinkingDomEventGate = true;
+  const releaseGate = () => {
+    chatGptThinkingDomEventGate = false;
+  };
+  if (typeof setTimeout === 'function') setTimeout(releaseGate, 0);
+  else if (typeof queueMicrotask === 'function') queueMicrotask(releaseGate);
+  else releaseGate();
+  queueChatGptThinkingCapture();
+  return true;
+}
+
 // ---------- COUNTING ----------
 let lastTick = 0;
 const throttleMs = 400;
@@ -134,12 +503,21 @@ function tick({
   request?.catch?.(() => {});
 }
 
-function recordDomSend() {
+function recordDomSend(target) {
+  const root = composerRoot(target);
+  const queuedSend = isQueueControl(activeSendButton(root));
+
   if (!siteConfig.countViaPageNetwork && !siteConfig.countViaNetwork) {
+    queueChatGptThinkingCaptureFromDom();
     tick();
     return;
   }
 
+  if (pendingDomFallback !== null && !queuedSend) return;
+  queueChatGptThinkingCaptureFromDom();
+  // A queued ChatGPT send has its own response authorization, but the existing
+  // fallback timer still covers the original send. The authoritative
+  // webRequest path counts each queued network request separately.
   if (pendingDomFallback !== null) return;
   if (typeof setTimeout !== 'function') {
     tick({ reason: `${provider}-dom-fallback` });
@@ -276,21 +654,26 @@ function hasActiveSuggestionMenu(target) {
 
 // capture so React can't swallow events before us
 if (countDomEvents) {
-  document.addEventListener('submit', (e) => { if (inComposer(e.target) && canSendFrom(e.target)) recordDomSend(); }, true);
+  document.addEventListener('submit', (e) => {
+    if (e.isTrusted === false) return;
+    if (inComposer(e.target) && canSendFrom(e.target)) recordDomSend(e.target);
+  }, true);
   document.addEventListener('keydown', (e) => {
     if (
+      e.isTrusted !== false &&
       inComposer(e.target) &&
       shouldCountKey(e) &&
       !hasActiveSuggestionMenu(e.target) &&
       canSendFrom(e.target)
     ) {
-      recordDomSend();
+      recordDomSend(e.target);
     }
   }, true);
   document.addEventListener('click', (e) => {
+    if (e.isTrusted === false) return;
     const selector = siteConfig.sendButtons.join(', ');
     const btn = selector && (e.target instanceof Element) && e.target.closest(selector);
-    if (btn && inComposer(btn) && !isDisabledControl(btn) && canSendFrom(btn)) recordDomSend();
+    if (btn && inComposer(btn) && !isDisabledControl(btn) && canSendFrom(btn)) recordDomSend(btn);
   }, true);
 }
 
