@@ -112,7 +112,10 @@ describe('full JSON backup and restore', () => {
 
     await harness.selectFile('restoreJsonInput', JSON.stringify(payload), 'backup.json');
 
-    assert.match(harness.confirmationMessages[0], /replaces current counts, hours, sessions, settings, and diagnostics/);
+    assert.match(
+      harness.confirmationMessages[0],
+      /replaces current prompt counts, thinking-time aggregates, hours, sessions, settings, and diagnostics/
+    );
     const importMessage = harness.runtimeMessages.find((message) => message.type === 'importData');
     assert.equal(JSON.stringify(importMessage.payload), JSON.stringify(payload));
     assert.equal(
