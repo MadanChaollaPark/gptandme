@@ -48,14 +48,16 @@
       <li>Counts user-sent prompts on supported AI chat websites.</li>
       <li>Shows today, week, month, last 24 hours, streak, total, sessions, and model breakdown when available.</li>
       <li>Shows today's and all-time counts for ChatGPT, Claude, Gemini, Perplexity, and Grok.</li>
+      <li>Shows ChatGPT-only average and total thinking time when ChatGPT exposes finalized provider-reported timing for new responses after a user send.</li>
       <li>Includes an optional in-page counter for today's count.</li>
-      <li>Downloads and restores complete JSON backups.</li>
-      <li>Exports <code>date,provider,model,count</code> CSV usage files and continues to import legacy GPTandME CSV files by merging their counts.</li>
+      <li>Downloads and restores complete JSON backups, including timing aggregates when present.</li>
+      <li>Exports <code>date,provider,model,count</code> CSV usage files for prompt counts only and continues to import legacy GPTandME CSV files by merging their counts.</li>
       <li>Provides reset controls for today's count or all stored counts.</li>
     </ul>
 
     <h2>Supported Services</h2>
-    <p>Supported services currently include the HTTPS browser chat sites for ChatGPT, Claude, Gemini, Perplexity, and Grok. Grok counting is optional and begins only after you enable access to grok.com in the popup. Service counts, model labels when available, and other usage summaries stay on your device. GPTandME does not store prompt text or a page's full URL path.</p>
+    <p>Supported services currently include the HTTPS browser chat sites for ChatGPT, Claude, Gemini, Perplexity, and Grok. Grok counting is optional and begins only after you enable access to grok.com in the popup. Service counts, model labels when available, ChatGPT provider-reported timing aggregates, and other usage summaries stay on your device. GPTandME does not store prompt text, response text, raw thinking labels, raw timing samples, or a page's full URL path.</p>
+    <p>Thinking-time reporting is ChatGPT-only in version 1.5.0. It applies only to new responses observed after you send a prompt, only when ChatGPT exposes a finalized provider-reported timing label, and it does not backfill historical conversations or treat untimed prompts as zero-duration responses.</p>
     <p>GPTandME is browser-only. It does not count Claude Code, native desktop apps, command-line tools, or direct provider API usage outside the supported browser chat sites, and it cannot be enabled in Chrome Incognito mode. GPTandME is an independent tool and is not affiliated with, endorsed by, or sponsored by those services or their owners.</p>
   </body>
 </html>
