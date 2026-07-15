@@ -24,8 +24,9 @@ GPTandME is a browser-only Chrome extension that counts prompts sent from suppor
 - Today, week, month, last 24 hours, streak, total, and session statistics.
 - Today and all-time prompt counts for each supported service: ChatGPT, Claude, Gemini, Perplexity, and Grok.
 - Model breakdowns when the chat site exposes a model label.
+- ChatGPT-only average and total thinking time when ChatGPT exposes a finalized provider-reported timing label for a new response after a user send.
 - An OpenAI API cost proxy based on prompt counts, not actual token usage or billing data.
-- Complete JSON backup/restore plus CSV export/import for dated usage counts.
+- Complete JSON backup/restore plus CSV export/import for dated prompt counts.
 - Diagnostics and reset controls in the popup.
 
 ## Supported Sites
@@ -45,7 +46,7 @@ It does not count activity from Claude Code, native desktop apps, command-line t
 
 Install the published extension from the [Chrome Web Store](https://chromewebstore.google.com/detail/jkejkpkndbbkfjpbjecbaldjgnhjiilf?utm_source=item-share-cb).
 
-GPTandME 1.4.0 requires Chrome/Chromium 111 or newer so its early page-context send detector runs in the manifest-declared MAIN world.
+GPTandME 1.5.0 requires Chrome/Chromium 111 or newer so its early page-context send detector runs in the manifest-declared MAIN world.
 
 To test the current source locally:
 
