@@ -10,6 +10,8 @@ Use this checklist for every Chrome Web Store release. The release artifact must
 - Confirm the supported browser hosts, permissions, stored fields, retention bounds, and provider list still match the runtime.
 - Keep Grok in `optional_host_permissions`, not static content-script matches, so an update does not disable existing installations for a new required host warning.
 - State the product boundary clearly: GPTandME counts supported browser chat sites only. Claude Code, native desktop apps, command-line tools, direct provider API clients, and Chrome Incognito are not supported.
+- For v1.5.0 thinking time, state the contract exactly: local-only aggregate provider-reported ChatGPT timing for new responses observed after the user sends; no raw prompt/response content, no raw thinking labels, no raw timing samples, and no historical backfill.
+- Confirm JSON backups include thinking aggregates, while CSV export/import remains prompt counts only with `date,provider,model,count`.
 
 ## 2. Verify locally
 
