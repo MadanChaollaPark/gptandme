@@ -1,4 +1,13 @@
-importScripts('shared.js');
+try {
+  if (typeof importScripts === 'function') importScripts('shared.js');
+} catch (_) {
+  // Test harnesses may inject GptAndMeShared directly without service-worker importScripts.
+}
+
+const GptAndMeSharedApi = globalThis.GptAndMeShared;
+if (!GptAndMeSharedApi) {
+  throw new Error('GPT&Me background requires shared storage helpers.');
+}
 
 const {
   hourKey,
@@ -7,18 +16,21 @@ const {
   isUserSendPayload,
   mergeUsageData,
   normalizeModelName,
+  normalizeProviderId,
   normalizeProviderModelData,
   parseDateKey,
   providerForHost,
   siteConfigForHost,
   sumCounts,
   todayKey,
-} = GptAndMeShared;
+} = GptAndMeSharedApi;
 const DEDUPE_MS = 2000;
 const EVENT_DEDUPE_TTL_MS = 24 * 60 * 60 * 1000;
 const MAX_RECENT_EVENTS = 500;
 const MAX_RECENT_INCREMENTS = 500;
 const MAX_SESSIONS = 500;
+const MIN_THINKING_MS = 1000;
+const MAX_THINKING_MS = 6 * 60 * 60 * 1000;
 const UNSAFE_OBJECT_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
 const BADGE_REFRESH_ALARM = 'gptandme-refresh-badge';
 const BADGE_BACKGROUND_COLOR = '#d1242f';
@@ -46,12 +58,13 @@ const GROK_CONTENT_SCRIPTS = Object.freeze([
     persistAcrossSessions: true,
   }),
 ]);
-const STORAGE_SCHEMA_VERSION = 2;
-const EXPORT_SCHEMA_VERSION = 2;
+const STORAGE_SCHEMA_VERSION = 3;
+const EXPORT_SCHEMA_VERSION = 3;
 const STORAGE_DEFAULTS = {
   byDate: {},
   byModel: {},
   byProviderModel: {},
+  byThinkingProviderModel: {},
   byHour: {},
   sessions: {},
   total: 0,
@@ -69,6 +82,7 @@ const STORAGE_DEFAULTS = {
   lastIncrementAt: 0,
   recentIncrements: {},
   recentEvents: {},
+  recentThinkingEvents: {},
 };
 let incrementQueue = Promise.resolve();
 let grokSyncQueue = Promise.resolve();
@@ -228,6 +242,52 @@ function normalizeRecentIncrements(value, now = Date.now()) {
   return Object.fromEntries(entries.slice(0, MAX_RECENT_INCREMENTS));
 }
 
+function safeThinkingAggregate(value) {
+  if (!isObject(value)) return null;
+  const reportedCount = safeNonNegativeInteger(value.reportedCount);
+  const totalMs = safeNonNegativeInteger(value.totalMs);
+  if (reportedCount <= 0 || totalMs <= 0) return null;
+
+  const averageMs = totalMs / reportedCount;
+  if (averageMs < MIN_THINKING_MS || averageMs > MAX_THINKING_MS) return null;
+
+  return { reportedCount, totalMs };
+}
+
+function normalizeThinkingProviderModelData(value) {
+  const normalized = {};
+  for (const [date, providers] of Object.entries(cloneObject(value))) {
+    if (!parseDateKey(date) || !isObject(providers)) continue;
+
+    for (const [rawProvider, models] of Object.entries(providers)) {
+      const providerKey = String(rawProvider || '').trim();
+      if (!providerKey || UNSAFE_OBJECT_KEYS.has(providerKey) || !isObject(models)) continue;
+      const provider = normalizeProviderId(providerKey);
+
+      for (const [rawModel, aggregate] of Object.entries(models)) {
+        const modelKey = String(rawModel || '').trim();
+        if (!modelKey || UNSAFE_OBJECT_KEYS.has(modelKey)) continue;
+        const safeAggregate = safeThinkingAggregate(aggregate);
+        if (!safeAggregate) continue;
+
+        const model = normalizeModelName(modelKey);
+        if (!normalized[date]) normalized[date] = {};
+        if (!normalized[date][provider]) normalized[date][provider] = {};
+
+        const existing = normalized[date][provider][model] || {
+          reportedCount: 0,
+          totalMs: 0,
+        };
+        const reportedCount = existing.reportedCount + safeAggregate.reportedCount;
+        const totalMs = existing.totalMs + safeAggregate.totalMs;
+        if (!Number.isSafeInteger(reportedCount) || !Number.isSafeInteger(totalMs)) continue;
+        normalized[date][provider][model] = { reportedCount, totalMs };
+      }
+    }
+  }
+  return normalized;
+}
+
 function safeString(value, fallback = 'unknown', maxLength = 256) {
   const text = String(value ?? '').trim();
   return (text || fallback).slice(0, maxLength);
@@ -258,12 +318,16 @@ function normalizeStoredData(data = {}) {
     byModel,
     cloneObject(data.byProviderModel)
   );
+  const byThinkingProviderModel = normalizeThinkingProviderModelData(
+    data.byThinkingProviderModel
+  );
   const sessions = normalizeSessions(data.sessions);
 
   return {
     byDate,
     byModel,
     byProviderModel,
+    byThinkingProviderModel,
     byHour: normalizeHourCounts(data.byHour),
     sessions,
     total: sumCounts(byDate),
@@ -286,6 +350,7 @@ function normalizeStoredData(data = {}) {
       ...(data.lastIncrementKey ? { [data.lastIncrementKey]: data.lastIncrementAt } : {}),
     }),
     recentEvents: normalizeRecentEvents(data.recentEvents),
+    recentThinkingEvents: normalizeRecentEvents(data.recentThinkingEvents),
   };
 }
 
@@ -512,6 +577,7 @@ function clearedCountDiagnostics() {
     lastIncrementAt: 0,
     recentIncrements: {},
     recentEvents: {},
+    recentThinkingEvents: {},
   };
 }
 
@@ -521,6 +587,7 @@ async function resetTodayData() {
   delete data.byDate[day];
   delete data.byModel[day];
   delete data.byProviderModel[day];
+  delete data.byThinkingProviderModel[day];
   for (const hour of Object.keys(data.byHour)) {
     if (hour.startsWith(`${day}-`)) delete data.byHour[hour];
   }
@@ -718,6 +785,87 @@ function supportedSenderContext(sender = {}) {
   }
 }
 
+function normalizeThinkingDurationMs(value) {
+  if (typeof value !== 'number' || !Number.isSafeInteger(value)) return null;
+  const duration = value;
+  if (duration < MIN_THINKING_MS || duration > MAX_THINKING_MS) return null;
+  return duration;
+}
+
+function normalizeThinkingEventId(value) {
+  if (typeof value !== 'string') return '';
+  const eventId = value.trim();
+  if (!eventId || eventId.length > 180 || UNSAFE_OBJECT_KEYS.has(eventId)) return '';
+  return /^[a-zA-Z0-9:._-]+$/.test(eventId) ? eventId : '';
+}
+
+function thinkingEventKey(provider, eventId) {
+  const key = safeOpaqueId(`${provider}:${eventId}`, '');
+  return key || '';
+}
+
+function parseThinkingMetric(message = {}, context = null) {
+  if (!context || context.provider !== 'chatgpt') return null;
+  if (message.source !== 'provider-reported') return null;
+
+  const eventId = normalizeThinkingEventId(message.eventId);
+  const thinkingMs = normalizeThinkingDurationMs(message.thinkingMs);
+  if (!eventId || thinkingMs === null) return null;
+
+  return {
+    eventId,
+    model: normalizeModelName(message.model),
+    provider: context.provider,
+    thinkingMs,
+  };
+}
+
+async function recordThinkingMetricNow(metric) {
+  const now = Date.now();
+  const day = todayKey();
+  const data = await getCounts();
+  const recentThinkingEvents = normalizeRecentEvents(data.recentThinkingEvents, now);
+  const eventKey = thinkingEventKey(metric.provider, metric.eventId);
+  if (!eventKey) return false;
+  if (recentThinkingEvents[eventKey]) return false;
+  recentThinkingEvents[eventKey] = now;
+
+  const byThinkingProviderModel = normalizeThinkingProviderModelData(
+    data.byThinkingProviderModel
+  );
+  if (!byThinkingProviderModel[day]) byThinkingProviderModel[day] = {};
+  if (!byThinkingProviderModel[day][metric.provider]) {
+    byThinkingProviderModel[day][metric.provider] = {};
+  }
+
+  const existing = byThinkingProviderModel[day][metric.provider][metric.model] || {
+    reportedCount: 0,
+    totalMs: 0,
+  };
+  const reportedCount = existing.reportedCount + 1;
+  const totalMs = existing.totalMs + metric.thinkingMs;
+  if (!Number.isSafeInteger(reportedCount) || !Number.isSafeInteger(totalMs)) {
+    throw new Error('Thinking metric aggregate exceeded safe storage limits.');
+  }
+
+  byThinkingProviderModel[day][metric.provider][metric.model] = {
+    reportedCount,
+    totalMs,
+  };
+
+  await setCounts({
+    byThinkingProviderModel,
+    recentThinkingEvents: normalizeRecentEvents(recentThinkingEvents, now),
+    storageSchemaVersion: STORAGE_SCHEMA_VERSION,
+    extensionVersion: extensionVersion(),
+  });
+  return true;
+}
+
+function recordThinkingMetric(metric) {
+  return enqueueMutation(() => recordThinkingMetricNow(metric));
+}
+
 // Listen for tick messages from content script
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (!message || typeof message !== 'object') return;
@@ -748,6 +896,21 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return sendAsyncResponse(
       sendResponse,
       operation.then(counted => ({ ok: true, counted }))
+    );
+  }
+
+  if (message.type === 'thinkingMetric') {
+    const context = supportedSenderContext(sender);
+    const metric = parseThinkingMetric(message, context);
+    if (!metric) {
+      return sendAsyncResponse(
+        sendResponse,
+        Promise.resolve({ ok: true, counted: false })
+      );
+    }
+    return sendAsyncResponse(
+      sendResponse,
+      recordThinkingMetric(metric).then(counted => ({ ok: true, counted }))
     );
   }
 
